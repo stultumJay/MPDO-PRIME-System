@@ -1,11 +1,13 @@
 from sqlalchemy import Column, Integer, String
 from sqlalchemy.orm import relationship
+from sqlalchemy.dialects.postgresql import UUID
+import uuid
 from .base import Base
 
 class Role(Base):
     __tablename__ = "roles"
 
-    role_id = Column(Integer, primary_key=True, autoincrement=True)
+    role_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     role_name = Column(String(100))
 
     users = relationship("User", back_populates="role")
