@@ -1,20 +1,25 @@
-from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey
-from datetime import datetime
+from sqlalchemy import Boolean, Column, DateTime, String, ForeignKey, Text, UniqueConstraint, func
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
+import uuid
 from .base import Base
 
 class Program(Base):
-    __tablename__ = "programs"
+    __tablename__ = "program"
 
-    program_id = Column(Integer, primary_key=True, autoincrement=True)
-    office_id = Column(Integer, ForeignKey("offices.office_id"), nullable=False)
+    program_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    sector_id = Column(UUID(as_uuid=True), ForeignKey("sector.sector_id"))
 
-    program_code = Column(String(50))
-    program_name = Column(String(255), nullable=False)
+    program_code = Column(String(10), nullable=False)
+    program_name = Column(String(150), nullable=False)
     description = Column(Text)
+    
+    is_active  = Column(Boolean,  nullable=False, default=True)
+    created_at = Column(DateTime, nullable=False, server_default=func.now())
+    
+    __table_args__ = (
+        UniqueConstraint("sector_id", "program_code", name="uq_program_sector_code"),
+    )
 
-    is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    office = relationship("Office", back_populates="programs")
+    sector = relationship("Sector", back_populates="programs")
     projects = relationship("Project", back_populates="program")

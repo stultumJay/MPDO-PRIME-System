@@ -1,17 +1,15 @@
-from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime
-from datetime import datetime
+from sqlalchemy import Column, ForeignKey, String, Text
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
+import uuid
 from .base import Base
 
 class Sector(Base):
-    __tablename__ = "sectors"
+    __tablename__ = "sector"
 
-    sector_id = Column(Integer, primary_key=True, autoincrement=True)
-    sector_code = Column(String(20), unique=True, nullable=False)
-    sector_name = Column(String(255), nullable=False)
-    description = Column(Text)
+    sector_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    sector_code = Column(String(10), nullable=False)
+    sector_name = Column(String(100), nullable=False)
 
-    is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    sub_sectors = relationship("SubSector", back_populates="sector")
+    projects = relationship("Project", back_populates="sector")
+    programs = relationship("Program", back_populates="sector")
