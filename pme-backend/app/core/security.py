@@ -24,7 +24,7 @@ def verify_password(plain: str, hashed: str):
 
 def create_access_token(data: dict):
     """
-    This builds the short lived access token used on protected requests
+    This builds the access token used on all routes
     It copies the user payload, adds the expiry time, and marks the token as an access token
     """
     # Copy the payload first so the original caller data stays unchanged
