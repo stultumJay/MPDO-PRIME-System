@@ -20,6 +20,10 @@ def login_user(
     db: Session = Depends(get_db)
     ):
     
+    """
+    This route creates the login user flow and passes the request into the service layer
+    It expects username as str and password as str from the login form
+    """
     tokens = login(db, data.username, data.password)
 
     if not tokens:
@@ -30,6 +34,10 @@ def login_user(
 
 @router.post("/refresh")
 def refresh_token(refresh_token: str):
+    """
+    This route creates the refresh token flow and passes the request into the service layer
+    It expects refresh_token as str
+    """
     new_access = refresh_access_token(refresh_token)
 
     if not new_access:
