@@ -4,16 +4,18 @@ import {
   Shield, BarChart3, Users, FileText, ArrowRight, Lock, TrendingUp, 
   LayoutDashboard, MapPin, ClipboardList, DollarSign 
 } from 'lucide-react';
-import LoginModal from '../components/LoginModal';
+import LoginModal from '../components/modals/LoginModal';
 import logo from '../assets/mpdo-logo.jpg';
 import hero_1 from '../assets/placeholder_1.jpg';
 import hero_2 from '../assets/placeholder_3.jpg';
 import hero_3 from '../assets/placeholder_2.jpg';
+import { useNavigate } from '@tanstack/react-router';
 
 
 export default function LandingPage() {
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const navigate = useNavigate();
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 50);
@@ -32,7 +34,14 @@ export default function LandingPage() {
 
   return (
     <div className="min-h-screen bg-white text-slate-900 font-sans selection:bg-accent selection:text-white">
-      <LoginModal isOpen={isLoginModalOpen} onClose={() => setIsLoginModalOpen(false)} />
+     <LoginModal 
+      isOpen={isLoginModalOpen} 
+      onClose={() => setIsLoginModalOpen(false)} 
+      onLoginSuccess={() => {
+        setIsLoginModalOpen(false);
+        void navigate({ to: '/overview' });
+      }}
+    />
 
       {/* Navbar */}
       <nav className={`fixed top-0 w-full z-50 transition-all duration-300 ${scrolled ? 'bg-white/80 backdrop-blur-md py-4 border-b border-slate-200' : 'bg-transparent py-6'}`}>
