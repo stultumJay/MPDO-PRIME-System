@@ -8,6 +8,7 @@ class AppropriationBase(BaseModel):
     project_aip_id: int
     fiscal_year: int
     ao_number: Optional[str]
+    budget_type: Optional[str]
     total_amount: int
 
 
@@ -66,6 +67,7 @@ class ObligationBase(BaseModel):
     obligation_amount: int
     obligation_date: Optional[datetime]
     fiscal_year: int
+    quarter: int
     remarks: Optional[str]
 
 
@@ -85,6 +87,7 @@ class DisbursementBase(BaseModel):
     disbursement_amount: int
     disbursement_date: Optional[datetime]
     fiscal_year: int
+    quarter: int
     remarks: Optional[str]
 
 

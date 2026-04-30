@@ -15,6 +15,7 @@ class FundSourceCreate(FundSourceBase):
 
 class FundSourceOut(FundSourceBase):
     fund_source_id: int
+    created_at: datetime
 
     class Config:
         from_attributes = True
