@@ -1,29 +1,23 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text
-from datetime import datetime
+from sqlalchemy import Column, String, ForeignKey, Numeric, Date, DateTime, Text, func
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
+import uuid
 from .base import Base
 
+
 class Obligation(Base):
-    __tablename__ = "obligations"
+    __tablename__ = "obligation"
 
-    obligation_id = Column(Integer, primary_key=True, autoincrement=True)
+    obligation_id      = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    allotment_id       = Column(UUID(as_uuid=True), ForeignKey("allotment.allotment_id"), nullable=False)
 
-    allotment_id = Column(Integer, ForeignKey("allotments.allotment_id"))
+    payee              = Column(String(150),     nullable=False)
+    reference_document = Column(String(100),     nullable=False)
+    obligation_amount  = Column(Numeric(14, 2),  nullable=False)
+    obligation_date    = Column(Date,            nullable=False)
+    remarks            = Column(Text,            nullable=True)
+    created_by         = Column(UUID(as_uuid=True), ForeignKey("user_account.user_id"), nullable=True)
+    created_at         = Column(DateTime, nullable=False, server_default=func.now())
 
-    payee = Column(String(255))
-    reference_document = Column(String(255))
-
-    obligation_amount = Column(Integer)
-
-    obligation_date = Column(DateTime)
-    recorded_at = Column(DateTime, default=datetime.utcnow)
-
-    fiscal_year = Column(Integer)
-    quarter = Column(Integer)
-
-    remarks = Column(Text)
-
-    created_by = Column(Integer)
-
-    allotment = relationship("Allotment", back_populates="obligations")
+    allotment    = relationship("Allotment",    back_populates="obligations")
     disbursements = relationship("Disbursement", back_populates="obligation")
