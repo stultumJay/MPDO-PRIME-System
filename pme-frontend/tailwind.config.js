@@ -4,6 +4,9 @@ export default {
 
   theme: {
     extend: {
+      fontFamily: {
+        sans: ['Plus Jakarta Sans Variable', 'sans-serif'],
+      },
       colors: {
         accent: "#16a34a",  
         background: "var(--background)",
