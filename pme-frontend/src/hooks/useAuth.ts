@@ -3,17 +3,19 @@ import { AUTH_SESSION_EVENT, hasActiveSession } from "@/services/tokenService";
 
 type AuthSnapshot = {
   isAuthenticated: boolean;
+  isLoading: boolean;
 };
 
 let lastSnapshot: AuthSnapshot = {
   isAuthenticated: hasActiveSession(),
+  isLoading: false,
 };
 
 function getSnapshot(): AuthSnapshot {
   const next = hasActiveSession();
 
   if (lastSnapshot.isAuthenticated !== next) {
-    lastSnapshot = { isAuthenticated: next };
+    lastSnapshot = { isAuthenticated: next, isLoading: false };
   }
 
   return lastSnapshot;

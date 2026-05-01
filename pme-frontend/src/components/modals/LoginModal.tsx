@@ -73,12 +73,15 @@ export default function LoginModal({ isOpen, onClose, onLoginSuccess }: LoginMod
             </div>
 
             <button
+              type="button"
               onClick={onClose}
               className="absolute top-6 right-6 p-2 hover:bg-slate-50 rounded-full text-slate-400"
+              aria-label="Close login modal"
             >
               <X className="w-5 h-5" />
             </button>
 
+            {/*  UPDATED FORM */}
             <form className="space-y-5" onSubmit={handleLogin}>
               <div>
                 <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">
@@ -106,10 +109,12 @@ export default function LoginModal({ isOpen, onClose, onLoginSuccess }: LoginMod
                 />
               </div>
 
+              {/*  ERROR DISPLAY */}
               {error && (
                 <p className="text-red-500 text-sm">{error}</p>
               )}
 
+              {/*  UPDATED BUTTON */}
               <button
                 type="submit"
                 disabled={loading}
