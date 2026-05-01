@@ -19,19 +19,46 @@ function toLabel(value: unknown, fallback: string) {
   return label || fallback;
 }
 
+function normalizeOption(value: string) {
+  return value.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function uniqueSortedLabels(values: string[]) {
+  const byKey = new Map<string, string>();
+
+  for (const value of values) {
+    const label = toLabel(value, "Unassigned");
+    const key = normalizeOption(label);
+    if (!byKey.has(key)) byKey.set(key, label);
+  }
+
+  return [...byKey.values()].sort((a, b) =>
+    a.localeCompare(b, undefined, { sensitivity: "base" }),
+  );
+}
+
+type BudgetUtilizationResponse = {
+  fiscal_year: number;
+  records: {
+    project_code: string;
+    project_title: string;
+    sector: string;
+    fund_source: string;
+    appropriated: number | string;
+    allotted: number | string;
+    disbursed: number | string;
+  }[];
+  allocation: {
+    sector: string;
+    allotted: number | string;
+  }[];
+};
+
 type ProjectSummaryResponse = {
   project_code: string;
   project_title: string;
   sector: string;
   proposed: number | string;
-  allotted: number | string;
-  obligated: number | string;
-  disbursed: number | string;
-}[];
-
-type SectorSummaryResponse = {
-  sector: string;
-  project_count: number;
   allotted: number | string;
   obligated: number | string;
   disbursed: number | string;
@@ -75,20 +102,38 @@ export async function getBudgetData(fiscalYearOverride?: number): Promise<Budget
   const years = fiscalYearsRaw.map((year) => toNumber(year)).filter((year) => year > 0);
   const fiscalYear = fiscalYearOverride ?? (years.length > 0 ? Math.max(...years) : new Date().getFullYear());
 
-  const [projects, sectors] = await Promise.all([
-    requestJson<ProjectSummaryResponse>("/reports/projects-summary", { fiscal_year: fiscalYear }),
-    requestJson<SectorSummaryResponse>("/reports/sector-summary", { fiscal_year: fiscalYear }),
-  ]);
+  let projects: ProjectSummaryResponse = [];
+  let allocationRows: BudgetUtilizationResponse["allocation"] = [];
+  let records: BudgetRecord[] = [];
 
-  const records: BudgetRecord[] = projects.map((project) => ({
-    id: project.project_code,
-    title: project.project_title,
-    approved: toNumber(project.proposed),
-    released: toNumber(project.allotted),
-    utilized: toNumber(project.disbursed),
-    sector: toLabel(project.sector, "Unassigned"),
-    source: "Project AIP",
-  }));
+  try {
+    const budget = await requestJson<BudgetUtilizationResponse>("/reports/budget-utilization", {
+      fiscal_year: fiscalYear,
+    });
+    records = budget.records.map((record) => ({
+      id: record.project_code,
+      title: record.project_title,
+      approved: toNumber(record.appropriated),
+      released: toNumber(record.allotted),
+      utilized: toNumber(record.disbursed),
+      sector: toLabel(record.sector, "Unassigned"),
+      source: toLabel(record.fund_source, "Unassigned"),
+    }));
+    allocationRows = budget.allocation;
+  } catch {
+    projects = await requestJson<ProjectSummaryResponse>("/reports/projects-summary", {
+      fiscal_year: fiscalYear,
+    });
+    records = projects.map((project) => ({
+      id: project.project_code,
+      title: project.project_title,
+      approved: toNumber(project.proposed),
+      released: toNumber(project.allotted),
+      utilized: toNumber(project.disbursed),
+      sector: toLabel(project.sector, "Unassigned"),
+      source: "Project AIP",
+    }));
+  }
 
   const totalBudget = records.reduce((sum, record) => sum + record.approved, 0);
   const totalReleased = records.reduce((sum, record) => sum + record.released, 0);
@@ -97,12 +142,12 @@ export async function getBudgetData(fiscalYearOverride?: number): Promise<Budget
   const alignmentPercent = totalBudget > 0 ? (totalReleased / totalBudget) * 100 : 0;
 
   const palette = ["bg-primary", "bg-slate-900", "bg-blue-500", "bg-orange-500", "bg-emerald-500", "bg-slate-400"];
-  const allocation = sectors
-    .filter((sector) => toNumber(sector.allotted) > 0)
-    .map((sector, index) => {
-      const allotted = toNumber(sector.allotted);
+  const allocation = allocationRows
+    .filter((row) => toNumber(row.allotted) > 0)
+    .map((row, index) => {
+      const allotted = toNumber(row.allotted);
       return {
-        label: toLabel(sector.sector, "Unassigned"),
+        label: toLabel(row.sector, "Unassigned"),
         value: formatCompactPHP(allotted),
         percent: totalReleased > 0 ? (allotted / totalReleased) * 100 : 0,
         color: palette[index % palette.length],
@@ -112,8 +157,8 @@ export async function getBudgetData(fiscalYearOverride?: number): Promise<Budget
   return {
     fiscalYear,
     fiscalYears: years.sort((a, b) => b - a).map((year) => `FY ${year}`),
-    sectors: ["All Sectors", ...Array.from(new Set(records.map((record) => record.sector))).sort()],
-    fundSources: ["All Sources", "Project AIP"],
+    sectors: ["All Sectors", ...uniqueSortedLabels(records.map((record) => record.sector))],
+    fundSources: ["All Sources", ...uniqueSortedLabels(records.map((record) => record.source))],
     records,
     allocation,
     stats: {

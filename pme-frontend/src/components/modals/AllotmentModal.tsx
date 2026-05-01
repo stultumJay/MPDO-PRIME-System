@@ -31,7 +31,11 @@ export default function AllotmentModal({
   appropriationFundSources,
   unreleasedTotal,
 }: Props) {
-  const firstSource = appropriationFundSources[0];
+  const availableSources = useMemo(
+    () => appropriationFundSources.filter((source) => source.unreleased > 0),
+    [appropriationFundSources],
+  );
+  const firstSource = availableSources[0];
 
   const [apprFundSourceId, setApprFundSourceId] = useState(
     firstSource?.appr_fund_source_id ?? "",
@@ -45,13 +49,13 @@ export default function AllotmentModal({
 
   useEffect(() => {
     if (!open) return;
-    setApprFundSourceId(appropriationFundSources[0]?.appr_fund_source_id ?? "");
+    setApprFundSourceId(availableSources[0]?.appr_fund_source_id ?? "");
     setAroNumber("");
     setReleaseDate("");
     setThisRelease("");
     setRemarks("");
     setError(null);
-  }, [open, appropriationFundSources]);
+  }, [open, availableSources]);
 
   const selectedSource = useMemo(
     () =>
@@ -126,6 +130,12 @@ export default function AllotmentModal({
 
       {appropriation && appropriationFundSources.length === 0 && (
         <div className="mb-4 px-4 py-3 rounded-lg bg-amber-50 text-amber-800 text-xs font-medium border border-amber-200">
+          No appropriation fund source lines are available for FY {year}.
+        </div>
+      )}
+
+      {appropriation && appropriationFundSources.length > 0 && availableSources.length === 0 && (
+        <div className="mb-4 px-4 py-3 rounded-lg bg-amber-50 text-amber-800 text-xs font-medium border border-amber-200">
           All appropriation fund source lines have been fully released. No unreleased balance remaining.
         </div>
       )}
@@ -165,10 +175,10 @@ export default function AllotmentModal({
             }}
             disabled={
               !appropriation ||
-              appropriationFundSources.length === 0
+              availableSources.length === 0
             }
           >
-            {appropriationFundSources.map((s) => (
+            {availableSources.map((s) => (
               <option
                 key={s.appr_fund_source_id}
                 value={s.appr_fund_source_id}
@@ -176,7 +186,7 @@ export default function AllotmentModal({
                 {s.label} — Unreleased: {formatPHPFull(s.unreleased)}
               </option>
             ))}
-            {appropriationFundSources.length === 0 && (
+            {availableSources.length === 0 && (
               <option>No fund source lines available</option>
             )}
           </select>

@@ -3,6 +3,8 @@ import "@/styles/materialSymbols.css";
 import {
   createAppropriation,
   createAppropriationFundSource,
+  updateAppropriation,
+  updateAppropriationFundSource,
   type AppropriationFundSourceOption,
   type CurrentAppropriationInfo,
   type FundSourceOption,
@@ -16,11 +18,20 @@ import {
   ModalButton,
 } from "./ModalShell";
 
-const EXPENSE_CLASSES = ["CO", "PS", "MOOE", "FE"] as const;
+const EXPENSE_CLASS_LABELS: Record<string, string> = {
+  PS: "Personal Services",
+  MOOE: "Maintenance and Other Operating Expenses",
+  FE: "Financial Expenses",
+  CO: "Capital Outlay",
+};
 
 interface Row {
+  row_id: string;
+  appr_fund_source_id?: string;
   fund_source_id: string;
+  fund_name: string;
   expense_class: string;
+  current_amount: number;
   amount: string;
 }
 
@@ -38,6 +49,11 @@ interface Props {
   appropriation?: CurrentAppropriationInfo;
 }
 
+function toAmount(value: string) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 export default function AppropriationModal({
   open,
   onClose,
@@ -51,183 +67,201 @@ export default function AppropriationModal({
   existingLines = [],
   appropriation,
 }: Props) {
-  const firstAvailableRow = (): Row => {
-    const existingKeys = new Set(
-      existingLines.map((line) => `${line.fund_source_id}:${line.expense_class}`),
-    );
-
-    for (const fundSource of fundSources) {
-      for (const expenseClass of EXPENSE_CLASSES) {
-        const key = `${fundSource.fund_source_id}:${expenseClass}`;
-        if (!existingKeys.has(key)) {
-          return {
-            fund_source_id: fundSource.fund_source_id,
-            expense_class: expenseClass,
-            amount: "",
-          };
-        }
-      }
-    }
-
-    return {
-      fund_source_id: fundSources[0]?.fund_source_id ?? "",
-      expense_class: "CO",
-      amount: "",
-    };
-  };
-
-  const [aoNumber, setAoNumber] = useState(
-    appropriation?.ao_number ?? "",
-  );
-  const [rows, setRows] = useState<Row[]>([firstAvailableRow()]);
+  const [aoNumber, setAoNumber] = useState("");
+  const [rows, setRows] = useState<Row[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const isUpdate = Boolean(appropriation?.appropriation_id);
+
+  const fundSourceMap = useMemo(
+    () => new Map(fundSources.map((source) => [source.fund_source_id, source.fund_name])),
+    [fundSources],
+  );
 
   useEffect(() => {
     if (!open) return;
+
     setAoNumber(appropriation?.ao_number ?? "");
-    setRows([firstAvailableRow()]);
+    const nextRows: Row[] = existingLines.map((line) => {
+      const currentAmount = Number(line.appropriated_amount ?? 0);
+      return {
+        row_id: line.appr_fund_source_id,
+        appr_fund_source_id: line.appr_fund_source_id,
+        fund_source_id: line.fund_source_id,
+        fund_name: line.fund_name ?? fundSourceMap.get(line.fund_source_id) ?? "Fund Source",
+        expense_class: line.expense_class,
+        current_amount: currentAmount,
+        amount: String(currentAmount),
+      };
+    });
+    if (!appropriation?.appropriation_id && nextRows.length === 0) {
+      const firstFundSource = fundSources[0];
+      nextRows.push({
+        row_id: `new-${Date.now()}-0`,
+        fund_source_id: firstFundSource?.fund_source_id ?? "",
+        fund_name: firstFundSource?.fund_name ?? "Fund Source",
+        expense_class: "MOOE",
+        current_amount: 0,
+        amount: "",
+      });
+    }
+    setRows(nextRows);
     setError(null);
-  }, [open, appropriation?.ao_number, fundSources, existingLines]);
+  }, [appropriation, existingLines, fundSourceMap, fundSources, open]);
+
+  const validationError = useMemo(() => {
+    if (!projectAipId) return "This project is not linked to an AIP record yet.";
+    if (!aoNumber.trim()) return "AO number is required.";
+    if (rows.length === 0) return "Add at least one fund source line.";
+
+    const incomplete = rows.find(
+      (row) => !row.fund_source_id || !row.expense_class || toAmount(row.amount) <= 0,
+    );
+    if (incomplete) return "Each fund source line needs a fund source, expense class, and amount greater than zero.";
+
+    const lowered = rows.find((row) => row.appr_fund_source_id && toAmount(row.amount) < row.current_amount);
+    if (lowered) {
+      return `${lowered.fund_name} / ${lowered.expense_class} cannot be lower than its stored amount of ${formatPHPFull(lowered.current_amount)}.`;
+    }
+
+    return null;
+  }, [aoNumber, projectAipId, rows]);
 
   const total = useMemo(
-    () => rows.reduce((s, r) => s + (Number(r.amount) || 0), 0),
+    () => rows.reduce((sum, row) => sum + toAmount(row.amount), 0),
+    [rows],
+  );
+  const currentTotal = useMemo(
+    () => rows.reduce((sum, row) => sum + row.current_amount, 0),
     [rows],
   );
 
-  const updateRow = (idx: number, patch: Partial<Row>) =>
-    setRows((rs) => rs.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
+  const addRow = () => {
+    const firstFundSource = fundSources[0];
+    setRows((current) => [
+      ...current,
+      {
+        row_id: `new-${Date.now()}-${current.length}`,
+        fund_source_id: firstFundSource?.fund_source_id ?? "",
+        fund_name: firstFundSource?.fund_name ?? "Fund Source",
+        expense_class: "MOOE",
+        current_amount: 0,
+        amount: "",
+      },
+    ]);
+  };
 
-  const addRow = () =>
-    setRows((rs) => [...rs, firstAvailableRow()]);
+  const removeRow = (rowId: string) => {
+    setRows((current) => current.filter((row) => row.row_id !== rowId));
+  };
 
-  const removeRow = (idx: number) =>
-    setRows((rs) => rs.filter((_, i) => i !== idx));
+  const updateRow = (rowId: string, changes: Partial<Pick<Row, "fund_source_id" | "expense_class" | "amount">>) => {
+    setRows((current) =>
+      current.map((row) => {
+        if (row.row_id !== rowId) return row;
+        const nextFundSourceId = changes.fund_source_id ?? row.fund_source_id;
+        return {
+          ...row,
+          ...changes,
+          fund_name: fundSourceMap.get(nextFundSourceId) ?? row.fund_name,
+        };
+      }),
+    );
+  };
 
   const handleSave = async () => {
+    const message = validationError;
+    if (message) {
+      setError(message);
+      return;
+    }
+
     setBusy(true);
     setError(null);
     try {
-      if (!projectAipId) {
-        throw new Error("This project is not linked to an AIP record yet.");
-      }
-
-      const targetAppropriationId =
-        appropriation?.appropriation_id ||
-        (
-          await createAppropriation({
-            project_aip_id: projectAipId,
-            ao_number: aoNumber,
-            fiscal_year: String(year),
+      const savedAppropriation = appropriation?.appropriation_id
+        ? await updateAppropriation(appropriation.appropriation_id, {
+            ao_number: aoNumber.trim(),
           })
-        ).appropriation_id;
+        : await createAppropriation({
+            project_aip_id: projectAipId!,
+            ao_number: aoNumber.trim(),
+            fiscal_year: String(year),
+          });
+      const appropriationId = savedAppropriation.appropriation_id;
 
-      const validRows = rows.filter((r) => Number(r.amount) > 0 && !isExistingLine(r));
+      const changedRows = rows.filter(
+        (row) => row.appr_fund_source_id && toAmount(row.amount) !== row.current_amount,
+      );
+      const newRows = rows.filter((row) => !row.appr_fund_source_id);
 
       await Promise.all(
-        validRows.map((r) =>
-          createAppropriationFundSource({
-            appropriation_id: targetAppropriationId,
-            fund_source_id: r.fund_source_id,
-            expense_class: r.expense_class,
-            appropriated_amount: Number(r.amount),
-          }),
-        ),
+        [
+          ...changedRows.map((row) =>
+            updateAppropriationFundSource(row.appr_fund_source_id!, {
+              appropriated_amount: toAmount(row.amount),
+            }),
+          ),
+          ...newRows.map((row) =>
+            createAppropriationFundSource({
+              appropriation_id: appropriationId,
+              fund_source_id: row.fund_source_id,
+              expense_class: row.expense_class,
+              appropriated_amount: toAmount(row.amount),
+            }),
+          ),
+        ],
       );
+
       onSaved?.();
       onClose();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to save appropriation");
+      setError(e instanceof Error ? e.message : "Failed to update appropriation.");
     } finally {
       setBusy(false);
     }
   };
 
-  const hasCompletePositiveRow = rows.some(
-    (row) => row.fund_source_id && row.expense_class && Number(row.amount) > 0,
-  );
-  const hasIncompletePositiveRow = rows.some(
-    (row) => Number(row.amount) > 0 && (!row.fund_source_id || !row.expense_class),
-  );
-  const isExistingLine = (row: Row) =>
-    existingLines.some(
-      (line) =>
-        line.fund_source_id === row.fund_source_id &&
-        line.expense_class === row.expense_class,
-    );
-  const positiveRows = rows.filter((row) => Number(row.amount) > 0);
-  const hasExistingDuplicate = positiveRows.some(isExistingLine);
-  const hasDraftDuplicate =
-    new Set(positiveRows.map((row) => `${row.fund_source_id}:${row.expense_class}`)).size !==
-    positiveRows.length;
-  const isValid =
-    Boolean(projectAipId) &&
-    fundSources.length > 0 &&
-    total > 0 &&
-    hasCompletePositiveRow &&
-    !hasIncompletePositiveRow &&
-    !hasExistingDuplicate &&
-    !hasDraftDuplicate &&
-    aoNumber.trim().length > 0;
+  const canSave = !busy && !validationError;
 
   return (
     <ModalShell
       open={open}
       onClose={onClose}
-      title="Define Project Appropriation"
-      subtitle="Establish the legal authority and ceiling from the Appropriation Ordinance (AO)"
-      size="max-w-3xl"
+      title={isUpdate ? "Update Project Appropriation" : "Add Project Appropriation"}
+      subtitle={isUpdate ? "Adjust existing appropriation records without reducing stored amounts." : "Create the appropriation and assign budget lines by fund source and expense class."}
+      size="max-w-4xl"
       footer={
         <>
           <div className="flex flex-col">
-            <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold mb-1">
-              Total Authorized Ceiling
+            <span className="mb-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+              Updated Authorized Ceiling
             </span>
             <span className="text-2xl font-bold text-primary">
               {formatPHPFull(total)}
+            </span>
+            <span className="text-[10px] text-muted-foreground">
+              Current stored total: {formatPHPFull(currentTotal)}
             </span>
           </div>
           <div className="flex gap-3">
             <ModalButton variant="secondary" onClick={onClose} disabled={busy}>
               Cancel
             </ModalButton>
-            <ModalButton
-              onClick={handleSave}
-              disabled={busy || !isValid}
-            >
-              {busy ? "Saving..." : "Save Appropriation"}
+            <ModalButton onClick={handleSave} disabled={!canSave}>
+              {busy ? "Saving..." : isUpdate ? "Update Appropriation" : "Add Appropriation"}
             </ModalButton>
           </div>
         </>
       }
     >
-      {error && (
-        <div className="mb-4 px-4 py-3 rounded-lg bg-destructive/10 text-destructive text-xs font-medium">
-          {error}
+      {(error ?? validationError) ? (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-medium text-amber-800">
+          {error ?? validationError}
         </div>
-      )}
+      ) : null}
 
-      {fundSources.length === 0 && (
-        <div className="mb-4 px-4 py-3 rounded-lg bg-amber-50 text-amber-800 text-xs font-medium border border-amber-200">
-          No fund sources are configured. Contact the system administrator to add fund sources first.
-        </div>
-      )}
-
-      {hasExistingDuplicate && (
-        <div className="mb-4 px-4 py-3 rounded-lg bg-amber-50 text-amber-800 text-xs font-medium border border-amber-200">
-          One selected fund source and expense class already exists under this appropriation.
-          Choose another combination or continue with allotment for the existing line.
-        </div>
-      )}
-
-      {hasDraftDuplicate && (
-        <div className="mb-4 px-4 py-3 rounded-lg bg-amber-50 text-amber-800 text-xs font-medium border border-amber-200">
-          Duplicate fund source and expense class combinations cannot be saved in the same appropriation.
-        </div>
-      )}
-
-      {/* Project context fields */}
-      <div className="grid grid-cols-2 gap-x-6 gap-y-5 mb-7">
+      <div className="mb-7 grid grid-cols-2 gap-x-6 gap-y-5">
         <div>
           <FieldLabel>Project ID</FieldLabel>
           <input className={readonlyInputCls} readOnly value={projectCode} />
@@ -238,7 +272,7 @@ export default function AppropriationModal({
             className={inputCls}
             placeholder="e.g., AO-2025-01"
             value={aoNumber}
-            onChange={(e) => setAoNumber(e.target.value)}
+            onChange={(event) => setAoNumber(event.target.value)}
           />
         </div>
         <div>
@@ -250,103 +284,127 @@ export default function AppropriationModal({
           <input
             className={`${readonlyInputCls} font-mono text-xs`}
             readOnly
-            value={aipReference ?? "—"}
+            value={aipReference ?? "-"}
           />
+        </div>
+        <div>
+          <FieldLabel>Fiscal Year</FieldLabel>
+          <input className={readonlyInputCls} readOnly value={year} />
         </div>
       </div>
 
-      {/* Breakdown table */}
-      <h3 className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-3">
-        Appropriation Breakdown Table
-      </h3>
-      <div className="border border-border rounded-2xl overflow-hidden bg-muted/20">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h3 className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+          Budget Appropriated
+        </h3>
+        <ModalButton className="px-4 py-2 text-xs" variant="secondary" type="button" onClick={addRow}>
+          Add Fund Source
+        </ModalButton>
+      </div>
+      <div className="overflow-hidden rounded-2xl border border-border bg-muted/20">
         <table className="w-full text-left">
-          <thead className="bg-card border-b border-border">
+          <thead className="border-b border-border bg-card">
             <tr>
               <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
                 Fund Source
               </th>
-              <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground text-center">
+              <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
                 Expense Class
               </th>
-              <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground text-right">
-                Amount (₱)
+              <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                Current Amount
               </th>
-              <th className="px-5 py-3 w-10" />
+              <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                New Amount
+              </th>
+              <th className="w-12 px-3 py-3" />
             </tr>
           </thead>
-          <tbody className="bg-card">
-            {rows.map((r, idx) => (
-              <tr key={idx} className="border-t border-border first:border-t-0">
-                <td className="px-5 py-3">
-                  <select
-                    className={inputCls}
-                    value={r.fund_source_id}
-                    onChange={(e) =>
-                      updateRow(idx, { fund_source_id: e.target.value })
-                    }
-                  >
-                    {fundSources.map((f) => (
-                      <option key={f.fund_source_id} value={f.fund_source_id}>
-                        {f.fund_name}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-                <td className="px-5 py-3">
-                  <select
-                    className={inputCls}
-                    value={r.expense_class}
-                    onChange={(e) =>
-                      updateRow(idx, { expense_class: e.target.value })
-                    }
-                  >
-                    {EXPENSE_CLASSES.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-                <td className="px-5 py-3">
-                  <input
-                    className={`${inputCls} text-right`}
-                    type="number"
-                    min={0}
-                    placeholder="0.00"
-                    value={r.amount}
-                    onChange={(e) => updateRow(idx, { amount: e.target.value })}
-                  />
-                </td>
-                <td className="px-3 py-3">
-                  {rows.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => removeRow(idx)}
-                      className="text-muted-foreground hover:text-destructive transition-colors"
-                      aria-label="Remove row"
-                    >
-                      <span className="material-symbols-outlined text-base">
-                        remove_circle
-                      </span>
-                    </button>
-                  )}
+          <tbody className="divide-y divide-border bg-card">
+            {rows.length === 0 ? (
+              <tr>
+                <td colSpan={5} className="px-5 py-8 text-center text-sm text-muted-foreground">
+                  Add a fund source line to define this project appropriation.
                 </td>
               </tr>
-            ))}
+            ) : null}
+            {rows.map((row) => {
+              const newAmount = toAmount(row.amount);
+              const invalid = newAmount < row.current_amount;
+              return (
+                <tr key={row.row_id}>
+                  <td className="px-5 py-3">
+                    {row.appr_fund_source_id ? (
+                      <p className="text-sm font-bold text-foreground">{row.fund_name}</p>
+                    ) : (
+                      <select
+                        className={inputCls}
+                        value={row.fund_source_id}
+                        onChange={(event) => updateRow(row.row_id, { fund_source_id: event.target.value })}
+                      >
+                        {fundSources.map((source) => (
+                          <option key={source.fund_source_id} value={source.fund_source_id}>
+                            {source.fund_name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </td>
+                  <td className="px-5 py-3">
+                    {row.appr_fund_source_id ? (
+                      <>
+                        <p className="text-xs font-bold text-foreground">
+                          {EXPENSE_CLASS_LABELS[row.expense_class] ?? row.expense_class}
+                        </p>
+                        <p className="text-[10px] font-black uppercase text-muted-foreground">
+                          {row.expense_class}
+                        </p>
+                      </>
+                    ) : (
+                      <select
+                        className={inputCls}
+                        value={row.expense_class}
+                        onChange={(event) => updateRow(row.row_id, { expense_class: event.target.value })}
+                      >
+                        {Object.entries(EXPENSE_CLASS_LABELS).map(([value, label]) => (
+                          <option key={value} value={value}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </td>
+                  <td className="px-5 py-3 text-right font-mono text-sm text-muted-foreground">
+                    {formatPHPFull(row.current_amount)}
+                  </td>
+                  <td className="px-5 py-3">
+                    <input
+                      className={`${inputCls} text-right font-mono ${invalid ? "border-destructive text-destructive" : ""}`}
+                      type="number"
+                      min={row.current_amount}
+                      step="0.01"
+                      value={row.amount}
+                      onChange={(event) => updateRow(row.row_id, { amount: event.target.value })}
+                    />
+                  </td>
+                  <td className="px-3 py-3 text-right">
+                    {!row.appr_fund_source_id ? (
+                      <button
+                        className="rounded p-1 text-muted-foreground transition hover:bg-muted hover:text-destructive"
+                        type="button"
+                        onClick={() => removeRow(row.row_id)}
+                        aria-label="Remove fund source"
+                      >
+                        <span className="material-symbols-outlined text-lg">close</span>
+                      </button>
+                    ) : null}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
-
-      <button
-        type="button"
-        onClick={addRow}
-        disabled={fundSources.length === 0}
-        className="flex items-center gap-2 text-primary font-bold text-xs hover:text-primary/80 transition-colors py-3 disabled:cursor-not-allowed disabled:opacity-40"
-      >
-        <span className="material-symbols-outlined text-lg">add_circle</span>
-        Add Another Source / Class
-      </button>
     </ModalShell>
   );
 }

@@ -64,8 +64,8 @@ function getBalance(record: FinancialRecord) {
   return Math.max(record.released - record.utilized, 0);
 }
 
-function normalizeFilter(value: string) {
-  return value.trim().toLowerCase();
+function normalizeFilter(value: unknown) {
+  return String(value ?? "").trim().replace(/\s+/g, " ").toLowerCase();
 }
 
 function isAllSector(value: string) {
@@ -74,6 +74,17 @@ function isAllSector(value: string) {
 
 function isAllSource(value: string) {
   return normalizeFilter(value) === normalizeFilter(ALL_SOURCES);
+}
+
+function findOptionByNormalized(options: string[], value: string) {
+  const key = normalizeFilter(value);
+  return options.find((option) => normalizeFilter(option) === key);
+}
+
+function uniqueSorted(values: string[]) {
+  return Array.from(new Set(values.filter(Boolean))).sort((a, b) =>
+    a.localeCompare(b, undefined, { sensitivity: "base" }),
+  );
 }
 
 function getStatTone(tone: StatCard["tone"]) {
@@ -102,14 +113,10 @@ export default function Budget() {
       const resolvedYear = `FY ${data.fiscalYear}`;
       setSelectedYear(resolvedYear);
       setSelectedSector((current) =>
-        data.sectors.some((sector) => normalizeFilter(sector) === normalizeFilter(current))
-          ? current
-          : ALL_SECTORS,
+        findOptionByNormalized(data.sectors, current) ?? ALL_SECTORS,
       );
       setSelectedSource((current) =>
-        data.fundSources.some((source) => normalizeFilter(source) === normalizeFilter(current))
-          ? current
-          : ALL_SOURCES,
+        findOptionByNormalized(data.fundSources, current) ?? ALL_SOURCES,
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load budget data.");
@@ -159,28 +166,44 @@ export default function Budget() {
       ]
     : [];
   const allocation = payload?.allocation ?? [];
+  const sectorOptions = useMemo(() => {
+    if (!financialRecords.length) return sectors;
+    const sourceFiltered = isAllSource(selectedSource)
+      ? financialRecords
+      : financialRecords.filter((record) => normalizeFilter(record.source) === normalizeFilter(selectedSource));
+    return [ALL_SECTORS, ...uniqueSorted(sourceFiltered.map((record) => record.sector))];
+  }, [financialRecords, sectors, selectedSource]);
+
+  const fundSourceOptions = useMemo(() => {
+    if (!financialRecords.length) return fundSources;
+    const sectorFiltered = isAllSector(selectedSector)
+      ? financialRecords
+      : financialRecords.filter((record) => normalizeFilter(record.sector) === normalizeFilter(selectedSector));
+    return [ALL_SOURCES, ...uniqueSorted(sectorFiltered.map((record) => record.source))];
+  }, [financialRecords, fundSources, selectedSector]);
 
   useEffect(() => {
-    if (!sectors.some((sector) => normalizeFilter(sector) === normalizeFilter(selectedSector))) {
-      setSelectedSector(ALL_SECTORS);
-    }
-  }, [sectors, selectedSector]);
+    const canonical = findOptionByNormalized(sectorOptions, selectedSector);
+    if (!canonical) setSelectedSector(ALL_SECTORS);
+    else if (canonical !== selectedSector) setSelectedSector(canonical);
+  }, [sectorOptions, selectedSector]);
 
   useEffect(() => {
-    if (!fundSources.some((source) => normalizeFilter(source) === normalizeFilter(selectedSource))) {
-      setSelectedSource(ALL_SOURCES);
-    }
-  }, [fundSources, selectedSource]);
+    const canonical = findOptionByNormalized(fundSourceOptions, selectedSource);
+    if (!canonical) setSelectedSource(ALL_SOURCES);
+    else if (canonical !== selectedSource) setSelectedSource(canonical);
+  }, [fundSourceOptions, selectedSource]);
 
   const filteredRecords = useMemo(() => {
-    const normalizedSearch = searchTerm.trim().toLowerCase();
+    const normalizedSearch = normalizeFilter(searchTerm);
     const selectedSectorKey = normalizeFilter(selectedSector);
     const selectedSourceKey = normalizeFilter(selectedSource);
 
     return financialRecords.filter((record) => {
       const matchesSearch =
         !normalizedSearch ||
-        [record.id, record.title, record.sector, record.source].some((value) =>
+        // Header search covers text fields and common numeric budget values.
+        [record.id, record.title, record.sector, record.source, record.approved, record.released, record.utilized].some((value) =>
           normalizeFilter(value).includes(normalizedSearch),
         );
       const matchesSector =
@@ -218,43 +241,22 @@ export default function Budget() {
 
   const pageCount = Math.max(1, Math.ceil(filteredRecords.length / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
-  const visibleRecords = filteredRecords.slice(
-    (currentPage - 1) * PAGE_SIZE,
-    currentPage * PAGE_SIZE,
-  );
+  // Slice from the filtered source on every render so page navigation replaces rows instead of accumulating them.
+  const visibleRecords = filteredRecords
+    .slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+    .slice(0, PAGE_SIZE);
 
   return (
-    <AppShell>
+    <AppShell
+      topbar={{
+        title: "Budget Utilization",
+        showSearch: true,
+        searchValue: searchTerm,
+        onSearchChange: setSearchTerm,
+        searchPlaceholder: "Search project records...",
+      }}
+    >
       <section className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
-        <header className="flex h-16 shrink-0 items-center justify-between border-b border-border bg-card/90 px-6 backdrop-blur">
-          <div className="hidden w-full max-w-md md:block">
-            <label className="relative block">
-              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-lg text-muted-foreground">
-                search
-              </span>
-              <input
-                className="h-10 w-full rounded-lg border border-border bg-slate-50 pl-10 pr-4 text-sm font-medium text-slate-700 outline-none transition focus:border-primary/40 focus:bg-white focus:ring-2 focus:ring-primary/20"
-                placeholder="Search project records..."
-                type="search"
-                value={searchTerm}
-                onChange={(event) => setSearchTerm(event.target.value)}
-              />
-            </label>
-          </div>
-
-          <div className="ml-auto flex shrink-0 items-center gap-2">
-            <button className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100 hover:text-primary" type="button">
-              <span className="material-symbols-outlined text-xl">notifications</span>
-            </button>
-            <button className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100 hover:text-primary" type="button">
-              <span className="material-symbols-outlined text-xl">help</span>
-            </button>
-            <div className="flex h-9 w-9 items-center justify-center rounded-full border border-primary/20 bg-primary-container text-xs font-black text-on-primary-container">
-              AU
-            </div>
-          </div>
-        </header>
-
         <main className="min-h-0 flex-1 overflow-auto px-5 py-6 lg:px-8">
           <div className="mx-auto flex max-w-[1220px] flex-col gap-5">
             <div>
@@ -295,13 +297,13 @@ export default function Budget() {
               <FilterSelect
                 label="Sector Selection"
                 value={selectedSector}
-                options={sectors}
+                options={sectorOptions}
                 onChange={setSelectedSector}
               />
               <FilterSelect
                 label="Fund Source"
                 value={selectedSource}
-                options={fundSources}
+                options={fundSourceOptions}
                 onChange={setSelectedSource}
               />
               <div className="flex items-end">
@@ -388,6 +390,7 @@ export default function Budget() {
                     type="button"
                     disabled={!filteredRecords.length}
                     onClick={exportBudgetCsv}
+                    aria-label="Download filtered budget records"
                     title="Download filtered budget records"
                   >
                     <span className="material-symbols-outlined text-xl">file_download</span>
@@ -396,6 +399,7 @@ export default function Budget() {
                     className="rounded-lg p-1.5 text-slate-400 transition hover:bg-white hover:text-slate-950"
                     type="button"
                     title="Clear table filters"
+                    aria-label="Clear table filters"
                     onClick={() => {
                       setSearchTerm("");
                       setSelectedSector(ALL_SECTORS);
@@ -420,14 +424,14 @@ export default function Budget() {
                       <th className="w-32 px-5 py-3 text-right text-[9px] font-black uppercase tracking-widest text-slate-500">Balance</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody className="divide-y divide-slate-100" key={`${currentPage}-${searchTerm}-${selectedSector}-${selectedSource}`}>
                     {visibleRecords.map((record, index) => {
                       const utilization = getUtilizationPercent(record);
 
                       return (
                         <tr
                           className={`${index % 2 ? "bg-slate-50/50" : "bg-white"} transition hover:bg-primary/5`}
-                          key={record.id}
+                          key={`${record.id}-${record.source}-${(currentPage - 1) * PAGE_SIZE + index}`}
                         >
                           <td className="px-5 py-3 font-mono text-[11px] font-bold text-primary">{record.id}</td>
                           <td className="truncate px-5 py-3 text-[11px] font-bold text-slate-950">{record.title}</td>
