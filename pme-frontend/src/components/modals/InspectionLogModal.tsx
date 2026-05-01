@@ -60,7 +60,14 @@ export default function InspectionLogModal({
               Record site inspection findings and update completion percentage
             </p>
           </div>
-          <button onClick={onClose} className="text-gray-300 hover:text-gray-500 text-xl leading-none ml-4">×</button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-gray-300 hover:text-gray-500 text-xl leading-none ml-4"
+            aria-label="Close inspection modal"
+          >
+            ×
+          </button>
         </div>
 
         {/* Body */}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import "@/styles/materialSymbols.css";
 import { AppShell } from "../components/layout/AppShell";
 import {
@@ -61,16 +61,13 @@ export default function Monitoring() {
   const [payload, setPayload] = useState<MonitoringPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedFiscalYear, setSelectedFiscalYear] = useState<number | null>(null);
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const [page, setPage] = useState(1);
-  const searchInputRef = useRef<HTMLInputElement | null>(null);
-  const loadedFiscalYearRef = useRef<number | null>(null);
+  const activeDateRangeInvalid = Boolean(startDate && endDate && startDate > endDate);
 
   useEffect(() => {
-    if (
-      selectedFiscalYear !== null &&
-      loadedFiscalYearRef.current === selectedFiscalYear
-    ) {
+    if (activeDateRangeInvalid) {
       return;
     }
 
@@ -80,11 +77,15 @@ export default function Monitoring() {
       try {
         setLoading(true);
         setError(null);
-        const data = await getMonitoringData(selectedFiscalYear ?? undefined);
+        // Date range is the sole monitoring filter; fiscal year was removed to avoid competing constraints.
+        const data = await getMonitoringData({
+          startDate: startDate || undefined,
+          endDate: endDate || undefined,
+        });
         if (!mounted) return;
         setPayload(data);
-        loadedFiscalYearRef.current = data.fiscalYear;
-        setSelectedFiscalYear((current) => current ?? data.fiscalYear);
+        setStartDate((current) => current || data.startDate);
+        setEndDate((current) => current || data.endDate);
       } catch (err) {
         if (!mounted) return;
         setError(err instanceof Error ? err.message : "Failed to load monitoring data.");
@@ -98,7 +99,7 @@ export default function Monitoring() {
     return () => {
       mounted = false;
     };
-  }, [selectedFiscalYear]);
+  }, [startDate, endDate]);
 
   const projectSummaries = payload?.projectSummaries ?? [];
 
@@ -114,10 +115,6 @@ export default function Monitoring() {
     );
   }, [searchTerm, projectSummaries]);
 
-  useEffect(() => {
-    setPage(1);
-  }, [searchTerm]);
-
   const pageCount = Math.max(1, Math.ceil(filteredProjects.length / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
   const visibleProjects = filteredProjects.slice(
@@ -125,8 +122,14 @@ export default function Monitoring() {
     currentPage * PAGE_SIZE,
   );
 
+  const displayError = activeDateRangeInvalid ? "Start date must be earlier than end date." : error;
+
+  const handleSearchChange = (value: string) => {
+    setSearchTerm(value);
+    setPage(1);
+  };
+
   const exportMonitoringCsv = () => {
-    const year = payload?.fiscalYear ?? new Date().getFullYear();
     const rows: (string | number)[][] = [
       ["Project Name", "Project Code", "Sector", "Total Budget", "Financial Utilization %", "Physical Completion %"],
       ...filteredProjects.map((project) => [
@@ -139,7 +142,7 @@ export default function Monitoring() {
       ]),
     ];
 
-    downloadCsv(`monthly_monitoring_fy_${year}.csv`, rows);
+    downloadCsv(`monthly_monitoring_${startDate || "start"}_${endDate || "end"}.csv`, rows);
   };
 
   const kpis: KpiCard[] = payload
@@ -178,110 +181,69 @@ export default function Monitoring() {
     : [];
 
   return (
-    <AppShell>
+    <AppShell
+      topbar={{
+        title: "Monthly Monitoring",
+        showSearch: true,
+        searchValue: searchTerm,
+        onSearchChange: handleSearchChange,
+        searchPlaceholder: "Search monitoring analytics...",
+      }}
+    >
       <section className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
-        <header className="flex h-16 shrink-0 items-center justify-between border-b border-border bg-card/90 px-6 backdrop-blur">
-          <div className="flex min-w-0 items-center gap-4">
-            <h1 className="text-lg font-black tracking-tight text-slate-900">Project Monitoring</h1>
-          </div>
-
-          <div className="mx-6 hidden w-full max-w-xl md:block">
-            <label className="relative block">
-              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-lg text-muted-foreground">
-                search
-              </span>
-              <input
-                ref={searchInputRef}
-                className="h-10 w-full rounded-xl border border-transparent bg-slate-100 pl-10 pr-4 text-sm font-medium text-slate-700 outline-none transition focus:border-primary/30 focus:bg-white focus:ring-2 focus:ring-primary/20"
-                placeholder="Search analytics..."
-                type="search"
-                value={searchTerm}
-                onChange={(event) => setSearchTerm(event.target.value)}
-              />
-            </label>
-          </div>
-
-          <div className="flex shrink-0 items-center gap-2">
-            <button className="relative rounded-full p-2 text-slate-500 transition hover:bg-slate-100 hover:text-primary" type="button">
-              <span className="material-symbols-outlined text-xl">notifications</span>
-              <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-destructive" />
-            </button>
-            <button className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100 hover:text-primary" type="button">
-              <span className="material-symbols-outlined text-xl">apps</span>
-            </button>
-            <div className="mx-2 hidden h-8 w-px bg-border sm:block" />
-            <div className="hidden text-right sm:block">
-              <p className="text-xs font-black leading-tight text-slate-900">Admin User</p>
-              <p className="mt-0.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-                Planning Officer
-              </p>
-            </div>
-            <div className="flex h-9 w-9 items-center justify-center rounded-full border border-primary/20 bg-primary-container text-xs font-black text-on-primary-container">
-              AU
-            </div>
-          </div>
-        </header>
-
         <main className="min-h-0 flex-1 overflow-auto px-5 py-6 lg:px-8">
           <div className="mx-auto flex max-w-[1220px] flex-col gap-5">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.24em] text-primary">
-                  Analytics & Reporting {payload ? `· FY ${payload.fiscalYear}` : ""}
+                  Analytics & Reporting
                 </p>
-                <h2 className="mt-2 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">
+                <h1 className="mt-2 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">
                   Monthly Reporting Analytics
-                </h2>
+                </h1>
                 <p className="mt-1 max-w-2xl text-sm font-medium text-muted-foreground">
                   Institutional performance tracking for the Municipal Planning and Development Office.
                 </p>
               </div>
 
               <div className="flex w-full justify-start lg:w-auto lg:justify-end">
-                <div className="grid w-full overflow-hidden rounded-lg bg-slate-100/90 sm:w-[360px] sm:grid-cols-[1fr_auto_1fr_auto]">
-                  <div className="flex items-center justify-between gap-2 px-3 py-2.5">
+                <div className="grid w-full overflow-hidden rounded-lg bg-slate-100/90 sm:w-[540px] sm:grid-cols-[1fr_auto_1fr_auto_auto]">
+                  <label className="flex items-center justify-between gap-2 px-3 py-2.5">
                     <div>
                       <p className="text-[10px] font-black uppercase leading-none tracking-tight text-slate-500">Start Date</p>
-                      <p className="mt-1 text-sm font-black tracking-tight text-slate-950">
-                        {payload?.startDate ?? "--/--/----"}
-                      </p>
+                      <input
+                        type="date"
+                        className="mt-1 w-full border-none bg-transparent p-0 text-sm font-black tracking-tight text-slate-950 outline-none focus:ring-0"
+                        value={startDate}
+                        onChange={(event) => {
+                          setStartDate(event.target.value);
+                          setPage(1);
+                        }}
+                      />
                     </div>
-                    <span className="material-symbols-outlined text-lg text-slate-500">calendar_today</span>
-                  </div>
+                  </label>
                   <div className="hidden w-px bg-border sm:block" />
-                  <div className="flex items-center justify-between gap-2 px-3 py-2.5">
+                  <label className="flex items-center justify-between gap-2 px-3 py-2.5">
                     <div>
                       <p className="text-[10px] font-black uppercase leading-none tracking-tight text-slate-500">End Date</p>
-                      <p className="mt-1 text-sm font-black tracking-tight text-slate-950">
-                        {payload?.endDate ?? "--/--/----"}
-                      </p>
+                      <input
+                        type="date"
+                        className="mt-1 w-full border-none bg-transparent p-0 text-sm font-black tracking-tight text-slate-950 outline-none focus:ring-0"
+                        value={endDate}
+                        onChange={(event) => {
+                          setEndDate(event.target.value);
+                          setPage(1);
+                        }}
+                      />
                     </div>
-                    <span className="material-symbols-outlined text-lg text-slate-500">calendar_today</span>
-                  </div>
-                  <label className="border-t border-border bg-white/50 px-3 py-2 sm:border-l sm:border-t-0">
-                    <span className="sr-only">Fiscal year</span>
-                    <select
-                      className="h-full border-none bg-transparent p-0 text-xs font-black text-slate-950 outline-none focus:ring-0"
-                      value={selectedFiscalYear ?? payload?.fiscalYear ?? ""}
-                      onChange={(event) => {
-                        setSelectedFiscalYear(Number(event.target.value));
-                        setPage(1);
-                      }}
-                    >
-                      {(payload?.fiscalYears ?? (payload ? [payload.fiscalYear] : [])).map((year) => (
-                        <option key={year} value={year}>
-                          FY {year}
-                        </option>
-                      ))}
-                    </select>
                   </label>
                 </div>
               </div>
             </div>
 
-            {error ? (
+            {displayError ? (
               <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm font-medium text-destructive">
-                {error}
+                {displayError}
               </div>
             ) : null}
 
@@ -317,7 +279,7 @@ export default function Monitoring() {
             <div className="grid gap-5 xl:grid-cols-12">
               <article className="rounded-2xl border border-border bg-card p-5 shadow-sm xl:col-span-4">
                 <div className="mb-6 flex items-center justify-between">
-                  <h3 className="text-sm font-black uppercase tracking-tight text-slate-950">Status Distribution</h3>
+                  <h2 className="text-sm font-black uppercase tracking-tight text-slate-950">Status Distribution</h2>
                   <span className="material-symbols-outlined text-slate-400">pie_chart</span>
                 </div>
                 <div className="space-y-4">
@@ -341,7 +303,7 @@ export default function Monitoring() {
 
               <article className="flex min-h-[250px] flex-col rounded-2xl border border-border bg-card p-5 shadow-sm xl:col-span-8">
                 <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <h3 className="text-sm font-black uppercase tracking-tight text-slate-950">Project Completion Trends</h3>
+                  <h2 className="text-sm font-black uppercase tracking-tight text-slate-950">Project Completion Trends</h2>
                   <div className="flex items-center gap-4">
                     <div className="flex items-center gap-1.5">
                       <span className="h-2 w-2 rounded-full bg-primary" />
@@ -387,20 +349,13 @@ export default function Monitoring() {
 
             <article className="min-h-[330px] overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
               <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-                <h3 className="text-sm font-black uppercase tracking-tight text-slate-950">Project Monitoring Summary</h3>
+                <h2 className="text-sm font-black uppercase tracking-tight text-slate-950">Project Monitoring Summary</h2>
                 <div className="flex items-center gap-1">
                   <button
                     className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-50 hover:text-primary"
                     type="button"
-                    title="Focus search"
-                    onClick={() => searchInputRef.current?.focus()}
-                  >
-                    <span className="material-symbols-outlined text-lg">search</span>
-                  </button>
-                  <button
-                    className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-50 hover:text-primary"
-                    type="button"
                     title="Clear search filters"
+                    aria-label="Clear search filters"
                     onClick={() => setSearchTerm("")}
                   >
                     <span className="material-symbols-outlined text-lg">filter_list</span>
@@ -409,6 +364,7 @@ export default function Monitoring() {
                     className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-50 hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
                     type="button"
                     title="Download monitoring summary"
+                    aria-label="Download monitoring summary"
                     disabled={!filteredProjects.length}
                     onClick={exportMonitoringCsv}
                   >

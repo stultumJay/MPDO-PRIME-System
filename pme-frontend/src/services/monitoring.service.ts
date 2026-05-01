@@ -34,12 +34,6 @@ type SummaryResponse = {
   funds_utilized_amount?: number;
 };
 
-type StatusResponse = {
-  status: string;
-  count: number;
-  percentage: number;
-}[];
-
 type TrendResponse = {
   month: string;
   year?: number;
@@ -83,8 +77,6 @@ export interface MonitoringProjectSummary {
 }
 
 export interface MonitoringPayload {
-  fiscalYear: number;
-  fiscalYears: number[];
   startDate: string;
   endDate: string;
   kpis: {
@@ -99,6 +91,11 @@ export interface MonitoringPayload {
   projectSummaries: MonitoringProjectSummary[];
 }
 
+export interface MonitoringQuery {
+  startDate?: string;
+  endDate?: string;
+}
+
 const statusTone: Record<string, string> = {
   completed: "bg-primary",
   in_progress: "bg-teal-400",
@@ -107,36 +104,40 @@ const statusTone: Record<string, string> = {
   delayed: "bg-destructive",
 };
 
-export async function getMonitoringData(fiscalYearOverride?: number): Promise<MonitoringPayload> {
-  const fiscalYears = await requestJson<number[]>("/aip/fiscal-years");
-  const fiscalYear =
-    fiscalYearOverride ??
-    (fiscalYears.length > 0 ? Math.max(...fiscalYears.map((year) => toNumber(year))) : new Date().getFullYear());
+function normalizeStatus(value: string) {
+  return value.trim().replace(/\s+/g, "_").toLowerCase();
+}
 
-  const [summary, statuses, trends, projects] = await Promise.all([
-    requestJson<SummaryResponse>("/dashboard/summary", { fiscal_year: fiscalYear }),
-    requestJson<StatusResponse>("/analytics/project-status", { fiscal_year: fiscalYear }),
+export async function getMonitoringData(options: MonitoringQuery = {}): Promise<MonitoringPayload> {
+  const currentYear = new Date().getFullYear();
+  const startDate = options.startDate || `${currentYear}-01-01`;
+  const endDate = options.endDate || `${currentYear}-12-31`;
+
+  const [summary, trends, projects] = await Promise.all([
+    requestJson<SummaryResponse>("/dashboard/summary"),
     requestJson<TrendResponse>("/dashboard/allocation-vs-disbursement", { months: 6 }),
-    requestJson<ProjectSummaryResponse>("/reports/projects-summary", { fiscal_year: fiscalYear }),
+    requestJson<ProjectSummaryResponse>("/reports/projects-summary", {
+      start_date: startDate,
+      end_date: endDate,
+    }),
   ]);
 
-  const totalProjects = projects.length || toNumber(summary.total_projects);
+  const totalProjects = projects.length;
   const activeProjects = projects.filter((project) =>
-    ["in_progress", "ongoing", "active"].includes(project.status),
+    ["in_progress", "ongoing", "active"].includes(normalizeStatus(project.status)),
   ).length;
-  const completed = projects.filter((project) => project.status === "completed").length || toNumber(summary.completed);
+  const completed = projects.filter((project) => normalizeStatus(project.status) === "completed").length;
   const appropriated = projects.reduce((sum, project) => sum + toNumber(project.proposed), 0);
   const utilized = projects.reduce((sum, project) => sum + toNumber(project.disbursed), 0);
   const allotted = projects.reduce((sum, project) => sum + toNumber(project.allotted), 0);
   const utilizedPercent = allotted > 0 ? (utilized / allotted) * 100 : toNumber(summary.utilization_percent);
 
-  const knownStatus = new Map(statuses.map((item) => [item.status, item]));
   const orderedStatuses = ["completed", "in_progress", "planned", "delayed"];
   const statusDistribution = orderedStatuses
     .map((status) => {
-      const fromBackend = knownStatus.get(status);
-      const count = fromBackend?.count ?? projects.filter((project) => project.status === status).length;
-      const percent = totalProjects > 0 ? (count / totalProjects) * 100 : toNumber(fromBackend?.percentage);
+      const projectCount = projects.filter((project) => normalizeStatus(project.status) === status).length;
+      const count = projectCount;
+      const percent = totalProjects > 0 ? (count / totalProjects) * 100 : 0;
 
       return {
         label: status === "in_progress" ? "Ongoing" : titleStatus(status),
@@ -164,7 +165,8 @@ export async function getMonitoringData(fiscalYearOverride?: number): Promise<Mo
     const allottedAmount = toNumber(project.allotted);
     const disbursedAmount = toNumber(project.disbursed);
     const financial = allottedAmount > 0 ? (disbursedAmount / allottedAmount) * 100 : 0;
-    const physical = project.status === "completed" ? 100 : project.status === "planned" ? 0 : Math.min(95, Math.max(12, financial));
+    const status = normalizeStatus(project.status);
+    const physical = status === "completed" ? 100 : status === "planned" ? 0 : Math.min(95, Math.max(12, financial));
 
     return {
       name: project.project_title,
@@ -177,10 +179,8 @@ export async function getMonitoringData(fiscalYearOverride?: number): Promise<Mo
   });
 
   return {
-    fiscalYear,
-    fiscalYears: fiscalYears.map((year) => toNumber(year)).filter((year) => year > 0).sort((a, b) => b - a),
-    startDate: `01/01/${fiscalYear}`,
-    endDate: `12/31/${fiscalYear}`,
+    startDate,
+    endDate,
     kpis: {
       totalProjects,
       activeProjects,
