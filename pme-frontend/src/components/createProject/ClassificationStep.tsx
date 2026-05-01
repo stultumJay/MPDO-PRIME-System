@@ -88,6 +88,7 @@ export function ClassificationStep({
             className="input"
             value={form.program_id}
             onChange={(e) => onChange("program_id", e.target.value)}
+            disabled={filteredPrograms.length === 0}
           >
             {filteredPrograms.length === 0 && (
               <option value="">No programs available for this sector</option>
@@ -98,6 +99,11 @@ export function ClassificationStep({
               </option>
             ))}
           </select>
+          {filteredPrograms.length === 0 ? (
+            <p className="mt-2 text-xs font-semibold text-destructive">
+              Create or select a program for this sector before creating a project.
+            </p>
+          ) : null}
         </Field>
       </div>
     </div>
