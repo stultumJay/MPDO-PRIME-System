@@ -14,13 +14,6 @@ interface ActionMeta {
   iconText: string;
 }
 
-interface ActivityMetric {
-  label: string;
-  percent: number;
-  tone: string;
-}
-
-const modules = ["All Modules", "Projects", "Finance", "Timeline", "Settings"];
 const actions = ["All Actions", "Approval", "Update", "Create", "Delete", "Access"];
 const PAGE_SIZE = 5;
 
@@ -57,61 +50,6 @@ const actionMeta: Record<AuditAction, ActionMeta> = {
   },
 };
 
-const auditEntries: AuditEntry[] = [
-  {
-    id: "PRJ-2025-001",
-    action: "Approval",
-    title: "Budget Appropriation Authorized",
-    module: "Projects",
-    user: "Admin User",
-    timestamp: "09:45 AM",
-    detail:
-      "Project status shifted from Pending Review to Active Monitoring by administrative override.",
-  },
-  {
-    id: "FIN-EXP-088",
-    action: "Update",
-    title: "Financial Expense Modified",
-    module: "Finance",
-    user: "Project Manager",
-    timestamp: "09:12 AM",
-    detail: "Updated allocation amount from PHP 45,000 to PHP 52,000 for site inspection logistics.",
-  },
-  {
-    id: "BUD-Q4-ALLOC",
-    action: "Create",
-    title: "Q4 Budget Allocation Formed",
-    module: "Finance",
-    user: "Finance Officer B",
-    timestamp: "Oct 11 - 11:15 AM",
-    detail: "Initiated disbursement framework for upcoming infrastructure maintenance cycles.",
-  },
-  {
-    id: "TMP-LOG-441",
-    action: "Delete",
-    title: "Temporary Log Purged",
-    module: "Timeline",
-    user: "System Bot",
-    timestamp: "Oct 11 - 04:30 PM",
-    detail: "Automated cleanup of expired transient timeline markers older than 30 days.",
-  },
-  {
-    id: "USR-MNG-992",
-    action: "Access",
-    title: "User Permissions Escalated",
-    module: "Settings",
-    user: "Admin User",
-    timestamp: "Oct 10 - 02:22 PM",
-    detail: 'Assigned "Project Manager Level 2" access to user account j.doe@mpdo.gov.',
-  },
-];
-
-const activityMetrics: ActivityMetric[] = [
-  { label: "Projects", percent: 42, tone: "bg-primary" },
-  { label: "Finance", percent: 28, tone: "bg-primary/70" },
-  { label: "User Admin", percent: 12, tone: "bg-slate-300" },
-];
-
 function csvCell(value: string | number) {
   const text = String(value);
   if (/[",\n]/.test(text)) return `"${text.replaceAll('"', '""')}"`;
@@ -133,10 +71,10 @@ function downloadCsv(filename: string, rows: Array<Array<string | number>>) {
 
 export default function Audit() {
   const [searchTerm, setSearchTerm] = useState("");
-  const [selectedModule, setSelectedModule] = useState(modules[0]);
+  const [selectedModule, setSelectedModule] = useState("All Modules");
   const [selectedAction, setSelectedAction] = useState(actions[0]);
   const [page, setPage] = useState(1);
-  const [entries, setEntries] = useState<AuditEntry[]>(auditEntries);
+  const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -181,6 +119,11 @@ export default function Audit() {
     });
   }, [entries, searchTerm, selectedAction, selectedModule]);
 
+  const moduleOptions = useMemo(
+    () => ["All Modules", ...Array.from(new Set(entries.map((entry) => entry.module))).sort()],
+    [entries],
+  );
+
   useEffect(() => {
     setPage(1);
   }, [searchTerm, selectedAction, selectedModule]);
@@ -193,7 +136,7 @@ export default function Audit() {
   );
 
   const dynamicMetrics = useMemo(() => {
-    if (!entries.length) return activityMetrics;
+    if (!entries.length) return [];
 
     const counts = entries.reduce<Record<string, number>>((acc, entry) => {
       acc[entry.module] = (acc[entry.module] ?? 0) + 1;
@@ -226,28 +169,16 @@ export default function Audit() {
   };
 
   return (
-    <AppShell>
+    <AppShell
+      topbar={{
+        title: "Audit Trail",
+        showSearch: true,
+        searchValue: searchTerm,
+        onSearchChange: setSearchTerm,
+        searchPlaceholder: "Search audit records...",
+      }}
+    >
       <section className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
-        <header className="flex h-16 shrink-0 items-center justify-between border-b border-border bg-card/90 px-6 backdrop-blur">
-          <nav className="hidden items-center gap-6 text-sm font-semibold text-muted-foreground lg:flex">
-            <span className="transition hover:text-slate-950">Current Projects</span>
-            <span className="transition hover:text-slate-950">Monthly Reporting</span>
-            <span className="transition hover:text-slate-950">Map-Based Monitoring</span>
-          </nav>
-
-          <div className="ml-auto flex shrink-0 items-center gap-2">
-            <button className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100 hover:text-primary" type="button">
-              <span className="material-symbols-outlined text-xl">notifications</span>
-            </button>
-            <button className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100 hover:text-primary" type="button">
-              <span className="material-symbols-outlined text-xl">help</span>
-            </button>
-            <div className="flex h-9 w-9 items-center justify-center rounded-full border border-primary/20 bg-primary-container text-xs font-black text-on-primary-container">
-              AU
-            </div>
-          </div>
-        </header>
-
         <main className="min-h-0 flex-1 overflow-auto px-5 py-6 lg:px-8">
           <div className="mx-auto flex max-w-[1220px] flex-col gap-6">
             <div>
@@ -272,21 +203,8 @@ export default function Audit() {
 
             <div className="grid gap-5 xl:grid-cols-12">
               <div className="space-y-5 xl:col-span-9">
-                <section className="grid gap-3 rounded-xl border border-border bg-card p-4 shadow-sm lg:grid-cols-[1fr_160px_160px_auto]">
-                  <label className="relative block min-w-0">
-                    <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-lg text-slate-400">
-                      search
-                    </span>
-                    <input
-                      className="h-10 w-full rounded-lg border border-border bg-slate-50 pl-10 pr-4 text-xs font-semibold text-slate-700 outline-none transition focus:border-primary/40 focus:ring-2 focus:ring-primary/20"
-                      placeholder="Search by Record ID or User..."
-                      type="search"
-                      value={searchTerm}
-                      onChange={(event) => setSearchTerm(event.target.value)}
-                    />
-                  </label>
-
-                  <AuditSelect value={selectedModule} options={modules} onChange={setSelectedModule} />
+                <section className="grid gap-3 rounded-xl border border-border bg-card p-4 shadow-sm lg:grid-cols-[160px_160px_auto]">
+                  <AuditSelect value={selectedModule} options={moduleOptions} onChange={setSelectedModule} />
                   <AuditSelect value={selectedAction} options={actions} onChange={setSelectedAction} />
 
                   <div className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 text-xs font-black text-slate-950">
@@ -316,6 +234,7 @@ export default function Audit() {
                         className="flex h-8 w-8 items-center justify-center rounded-lg border border-border transition hover:bg-white disabled:opacity-40"
                         type="button"
                         disabled={currentPage === 1}
+                        aria-label="Previous audit page"
                         onClick={() => setPage((value) => Math.max(1, value - 1))}
                       >
                         <span className="material-symbols-outlined text-sm">chevron_left</span>
@@ -330,6 +249,7 @@ export default function Audit() {
                         className="flex h-8 w-8 items-center justify-center rounded-lg border border-border transition hover:bg-white disabled:opacity-40"
                         type="button"
                         disabled={currentPage >= pageCount}
+                        aria-label="Next audit page"
                         onClick={() => setPage((value) => Math.min(pageCount, value + 1))}
                       >
                         <span className="material-symbols-outlined text-sm">chevron_right</span>

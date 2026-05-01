@@ -9,6 +9,7 @@ interface Props {
   children: React.ReactNode;
   footer?: React.ReactNode;
   size?: "max-w-xl" | "max-w-2xl" | "max-w-3xl" | "max-w-4xl";
+  bodyClassName?: string;
 }
 
 export function ModalShell({
@@ -19,6 +20,7 @@ export function ModalShell({
   children,
   footer,
   size = "max-w-2xl",
+  bodyClassName = "",
 }: Props) {
   useEffect(() => {
     if (!open) return;
@@ -64,7 +66,7 @@ export function ModalShell({
             </button>
           </div>
         </div>
-        <div className="px-8 pb-6 overflow-y-auto flex-1">{children}</div>
+        <div className={`px-8 pb-6 overflow-y-auto flex-1 ${bodyClassName}`}>{children}</div>
         {footer && (
           <div className="px-8 py-5 bg-muted/40 border-t border-border flex items-center justify-between gap-3">
             {footer}

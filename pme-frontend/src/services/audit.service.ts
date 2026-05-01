@@ -28,6 +28,7 @@ type AuditResponse = {
   entity?: string;
   entity_id?: string | null;
   description?: string | null;
+  performed_by_name?: string | null;
   created_at?: string;
 }[];
 
@@ -63,13 +64,15 @@ export async function getAuditEntries(): Promise<AuditEntry[]> {
   return rows.map((row, index) => {
     const action = normalizeAction(row.action);
     const module = formatLabel(row.entity, "System");
+    // The backend resolves performed_by to a full name; fall back only for legacy seed/system entries.
+    const user = row.performed_by_name?.trim() || "System";
 
     return {
       id: String(row.entity_id ?? row.audit_id ?? row.id ?? index + 1),
       action,
       title: `${formatLabel(row.action, action)} Recorded`,
       module,
-      user: "System",
+      user,
       timestamp: formatTimestamp(row.created_at),
       detail: row.description?.trim() || `${action} activity recorded for ${module}.`,
     };

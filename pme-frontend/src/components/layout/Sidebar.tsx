@@ -1,7 +1,9 @@
 import { Link, useRouterState } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 import { useSidebar } from "./SidebarContext";
 import { logout } from "@/services/tokenService";
 import { AppIcon } from "@/components/ui/AppIcon";
+import { getMyProfile } from "@/services/user.service";
 
 interface NavItem {
   label: string;
@@ -9,6 +11,7 @@ interface NavItem {
   to: string;
   exact?: boolean;
   onClick?: () => void;
+  disabled?: boolean;
 }
 interface NavSection {
   title: string;
@@ -61,6 +64,17 @@ export function Sidebar() {
   const { collapsed, toggle } = useSidebar();
   const widthClass = collapsed ? "w-16" : "w-64";
   const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const profileQuery = useQuery({
+    queryKey: ["auth", "me"],
+    queryFn: getMyProfile,
+    staleTime: 300_000,
+  });
+  const isAdmin = profileQuery.data?.role_name === "ADMIN";
+  const visibleSections = SECTIONS.map((section) =>
+    section.title === "System Management" && !isAdmin
+      ? { ...section, items: section.items.map((item) => ({ ...item, disabled: true })) }
+      : section,
+  );
   const activeItem =
     [...SECTIONS.flatMap((section) => section.items), ...FOOTER].find((item) =>
       item.exact ? pathname === item.to : pathname.startsWith(item.to),
@@ -83,15 +97,15 @@ export function Sidebar() {
             <h1 className="text-[15px] font-extrabold leading-none tracking-tight">
               MPDO Portal
             </h1>
-            <p className="mt-1 text-[9px] uppercase tracking-[0.18em] text-[#9aa9c4]">
-              The Civic Architect
+            <p className="mt-1 text-[9px] uppercase tracking-[0.18em] text-[#b6c3da]">
+              PRIME System
             </p>
           </div>
         </div>
         <button
           type="button"
           onClick={toggle}
-          className="flex h-8 w-8 items-center justify-center rounded-md text-[#d7e0ef] transition hover:bg-[#16233a] hover:text-white"
+          className="flex h-8 w-8 items-center justify-center rounded-md text-[#d7e0ef] transition hover:bg-[#1b2a45] hover:text-[#ffffff]"
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
@@ -103,12 +117,12 @@ export function Sidebar() {
       </div>
 
       <nav className={`flex-1 overflow-x-hidden px-3 pb-2 pt-0 ${collapsed ? "space-y-3" : ""}`}>
-        {SECTIONS.map((section) => (
+        {visibleSections.map((section) => (
           <div key={section.title} className="mb-4 last:mb-0">
             {collapsed ? (
               <div className="mx-2 mb-2 h-px bg-[#1d2336]" />
             ) : (
-              <p className="mb-1.5 px-3 text-[9px] font-medium uppercase tracking-[0.16em] text-[#6f7b95]">
+              <p className="mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#9fb3d1]">
                 {section.title}
               </p>
             )}
@@ -151,15 +165,23 @@ function NavRow({
   return (
     <Link
       to={item.to}
-      onClick={item.onClick}
+      onClick={(event) => {
+        if (item.disabled) {
+          event.preventDefault();
+          return;
+        }
+        item.onClick?.();
+      }}
       title={collapsed ? item.label : undefined}
       className={`
         mb-0.5 flex items-center rounded-md py-1.5 text-[14px] transition
         ${collapsed ? "justify-center px-0" : "gap-3 px-3"}
         ${
-          isActive
-            ? "border-r-2 border-[#27d2c2] bg-[#103844] text-[#7ef1e1] shadow-[inset_0_0_0_1px_rgba(39,210,194,0.08)]"
-            : "text-[#d7e0ef] hover:bg-[#16233a] hover:text-white"
+          item.disabled
+            ? "cursor-not-allowed text-[#6f7d95] opacity-60 hover:bg-transparent hover:text-[#6f7d95]"
+            : isActive
+            ? "border-r-2 border-[#27d2c2] bg-[#103844] text-[#9ff7ec] shadow-[inset_0_0_0_1px_rgba(39,210,194,0.08)]"
+            : "text-[#e4ecf7] hover:bg-[#1b2a45] hover:text-[#ffffff]"
         }
       `}
     >
