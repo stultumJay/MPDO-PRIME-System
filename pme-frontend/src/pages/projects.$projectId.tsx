@@ -1,5 +1,5 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "@tanstack/react-router";
+import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { AppShell } from "@/components/layout/AppShell";
 import { Topbar } from "@/components/layout/Topbar";
 import { AppIcon } from "@/components/ui/AppIcon";
@@ -11,7 +11,7 @@ import {
 } from "@/hooks/useProjectDetail";
 import type { AddToAipPayload } from "@/services/projectActions.service";
 import type { IssueItem } from "@/services/issues.service";
-import { downloadProjectDocument, type ProjectDetailPayload } from "@/services/project.service";
+import type { ProjectDetailPayload } from "@/services/project.service";
 import type { EditProjectPayload } from "@/components/modals/EditProjectModal";
 import {
   STATUS_LABEL,
@@ -31,7 +31,8 @@ type ProjectModal =
   | "progress"
   | "issue"
   | "resolve"
-  | "physical-progress";
+  | "physical-progress"
+  | "documents";
 
 type TimelineModalState = {
   phase_name: string;
@@ -53,6 +54,7 @@ const AddToAipModal = lazy(() => import("@/components/modals/AddToAipModal"));
 const AllotmentModal = lazy(() => import("@/components/modals/AllotmentModal"));
 const AppropriationModal = lazy(() => import("@/components/modals/AppropriationModal"));
 const DisbursementModal = lazy(() => import("@/components/modals/DisbursementModal"));
+const DocumentTrackingModal = lazy(() => import("@/components/modals/DocumentTrackingModal"));
 const EditProjectModal = lazy(() => import("@/components/modals/EditProjectModal"));
 const IssueLogModal = lazy(() => import("@/components/modals/IssueLogModal"));
 const ObligationModal = lazy(() => import("@/components/modals/ObligationModal"));
@@ -93,8 +95,12 @@ function buildPhaseDrafts(project: ProjectDetailPayload): PhaseDraft[] {
 export default function ProjectDetailPage() {
   const navigate = useNavigate();
   const { projectId: rawProjectId } = useParams({ strict: false });
+  const search = useSearch({ strict: false }) as { year?: unknown };
   const projectId = decodeURIComponent(rawProjectId ?? "").trim();
-  const [year, setYear] = useState<number | undefined>();
+  const [year, setYear] = useState<number | undefined>(() => {
+    const parsed = Number(search.year);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+  });
   const [modal, setModal] = useState<ProjectModal | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
@@ -102,6 +108,7 @@ export default function ProjectDetailPage() {
   const [issueError, setIssueError] = useState<string | null>(null);
   const [resolveError, setResolveError] = useState<string | null>(null);
   const [progressError, setProgressError] = useState<string | null>(null);
+  const [documentError, setDocumentError] = useState<string | null>(null);
   const [timelineError, setTimelineError] = useState<string | null>(null);
   const [timelineModal, setTimelineModal] = useState<TimelineModalState>(null);
   const currentUserName = useCurrentUserName();
@@ -118,6 +125,7 @@ export default function ProjectDetailPage() {
     projectId,
     activeAipContext?.project_aip_id,
     false,
+    project,
   );
   const mutations = useProjectMutations(projectId, selectedYear);
 
@@ -169,25 +177,14 @@ export default function ProjectDetailPage() {
     setModal(nextModal);
   }
 
-  async function handleDownloadDocument(documentId: string | undefined, filename: string) {
-    if (!documentId) {
-      setNotice("This document does not have an attached backend file yet.");
+  function handleOpenDocument(document: ProjectDetailPayload["documents"][number], action: "view" | "download" = "view") {
+    const url = action === "download" ? document.download_url : document.view_url;
+    if (!url) {
+      setNotice("This document does not have an available Google Drive link for that action yet.");
       return;
     }
 
-    try {
-      const blob = await downloadProjectDocument(projectId, documentId);
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Document download failed.");
-    }
+    window.open(url, "_blank", "noopener,noreferrer");
   }
 
   function closeFinanceModal() {
@@ -281,8 +278,13 @@ export default function ProjectDetailPage() {
 
           <aside className="col-span-12 space-y-6 xl:col-span-4">
             <DocumentsCard
+              tracking={project.document_tracking}
               documents={project.documents}
-              onDownload={(documentId, filename) => void handleDownloadDocument(documentId, filename)}
+              onOpenDocument={handleOpenDocument}
+              onConfigure={() => {
+                setDocumentError(null);
+                setModal("documents");
+              }}
             />
             <PhaseProgressCard
               phases={project.phases}
@@ -290,6 +292,7 @@ export default function ProjectDetailPage() {
               onLogProgress={() => setModal("progress")}
             />
             <RiskIssueCard
+              issues={issues}
               totalIssues={issues.length}
               openIssues={openIssues.length}
               code={project.project.project_code}
@@ -326,6 +329,7 @@ export default function ProjectDetailPage() {
             onOpenChange={(open) => setModal(open ? "add-aip" : null)}
             onSubmit={async (payload: AddToAipPayload) => {
               await mutations.addToAip.mutateAsync(payload);
+              setYear(payload.fiscal_year);
               setModal(null);
             }}
           />
@@ -420,6 +424,7 @@ export default function ProjectDetailPage() {
             onSubmit={async (payload) => {
               try {
                 await mutations.createIssue.mutateAsync(payload);
+                await detailQuery.refetch();
                 setModal(null);
               } catch (error) {
                 setIssueError(error instanceof Error ? error.message : "Failed to log issue.");
@@ -450,6 +455,7 @@ export default function ProjectDetailPage() {
                     resolved_by: payload.resolved_by,
                   },
                 });
+                await detailQuery.refetch();
                 setModal(null);
               } catch (error) {
                 setResolveError(error instanceof Error ? error.message : "Failed to resolve issue.");
@@ -467,6 +473,30 @@ export default function ProjectDetailPage() {
             performanceId={physicalPerformanceId}
             projectTitle={project.project.project_title}
             data={physicalProgressSeed}
+          />
+        </Suspense>
+      ) : null}
+      {modal === "documents" ? (
+        <Suspense fallback={null}>
+          <DocumentTrackingModal
+            open
+            initialDtn={project.document_tracking.dtn_no ?? project.project.dtn_no}
+            submitting={mutations.updateDtn.isPending}
+            error={documentError}
+            onOpenChange={(open) => {
+              setModal(open ? "documents" : null);
+              if (!open) setDocumentError(null);
+            }}
+            onSubmit={async (dtnNo) => {
+              try {
+                await mutations.updateDtn.mutateAsync(dtnNo);
+                await detailQuery.refetch();
+                setModal(null);
+                setNotice("DTN saved. Project documents were refreshed from Google Drive.");
+              } catch (error) {
+                setDocumentError(error instanceof Error ? error.message : "Failed to save DTN.");
+              }
+            }}
           />
         </Suspense>
       ) : null}
@@ -678,8 +708,8 @@ function AipContextCard({
             Annual Investment Program (AIP) Context
           </h2>
         </div>
-        <span className="rounded border border-primary/20 bg-primary/10 px-3 py-1 text-[10px] font-black uppercase text-primary">
-          {integrated && currentYear ? `Project included in FY ${currentYear} AIP` : "Select an AIP year"}
+        <span className="rounded border border-primary/20 bg-primary/10 px-3 py-1.5 text-xs font-black text-primary">
+          {integrated && aipReference ? `AIP Ref: ${aipReference}` : currentYear ? `FY ${currentYear}` : "Select an AIP year"}
         </span>
       </div>
       <p className="mt-5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
@@ -705,7 +735,6 @@ function AipContextCard({
           </button>
         ))}
       </div>
-      {aipReference ? <p className="mt-3 text-[10px] font-mono text-muted-foreground">AIP Ref: {aipReference}</p> : null}
     </section>
   );
 }
@@ -830,7 +859,7 @@ function BudgetTrackingCard({
   const mergedFundSources = useMemo(() => {
     const grouped = new Map<
       string,
-      { name: string; types: Set<string>; amount: number; allotted: number; disbursed: number }
+      { name: string; amount: number; allotted: number; disbursed: number }
     >();
 
     for (const source of budget.fund_sources) {
@@ -840,11 +869,9 @@ function BudgetTrackingCard({
         existing.amount += source.amount;
         existing.allotted += source.allotted ?? 0;
         existing.disbursed += source.disbursed ?? 0;
-        existing.types.add(source.type);
       } else {
         grouped.set(key, {
           name: source.name,
-          types: new Set([source.type]),
           amount: source.amount,
           allotted: source.allotted ?? 0,
           disbursed: source.disbursed ?? 0,
@@ -854,7 +881,6 @@ function BudgetTrackingCard({
 
     return [...grouped.values()].map((source) => ({
       name: source.name,
-      type: [...source.types].join(", "),
       amount: source.amount,
       allotted: source.allotted,
       disbursed: source.disbursed,
@@ -883,7 +909,7 @@ function BudgetTrackingCard({
           className="inline-flex items-center gap-2 rounded border border-primary/20 bg-primary/10 px-4 py-2 text-[10px] font-bold uppercase text-primary disabled:cursor-not-allowed disabled:border-border disabled:bg-muted disabled:text-muted-foreground"
         >
           <AppIcon name="add" className="h-4 w-4" />
-          Add Budget Appropriation
+          {ceiling > 0 ? "Update Appropriation" : "Add Appropriation"}
         </button>
       </div>
       <div className="rounded-lg border border-border/60 bg-muted/40 p-5">
@@ -901,52 +927,8 @@ function BudgetTrackingCard({
           <div className="h-full bg-primary" style={{ width: `${Math.min(100, utilization)}%` }} />
         </div>
       </div>
-      <div className="mt-6 overflow-x-auto">
-        <table className="w-full text-left">
-          <thead className="border-b border-border">
-            <tr>
-              {["Fund Source", "Budget", "Allocated", "Spent", "Remaining"].map((header) => (
-                <th key={header} className="py-3 text-[10px] font-black uppercase tracking-widest text-muted-foreground last:text-right">
-                  {header}
-                </th>
-              ))}
-            </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {budget.expense_lines.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={5}
-                    className="py-6 text-center text-xs font-semibold text-muted-foreground"
-                  >
-                    No finance records available for this project yet.
-                  </td>
-                </tr>
-              ) : (
-                budget.expense_lines.map((line) => (
-                  <tr key={line.expense_class}>
-                    <td className="py-3 text-sm font-black text-foreground">
-                      {line.expense_class}
-                    </td>
-                    <td className="py-3 text-right font-mono text-sm text-muted-foreground">
-                      {formatPHP(line.appropriated)}
-                    </td>
-                    <td className="py-3 text-right font-mono text-sm text-foreground">
-                      {formatPHP(line.allotted)}
-                    </td>
-                    <td className="py-3 text-right font-mono text-sm text-primary">
-                      {formatPHP(line.obligated)}
-                    </td>
-                    <td className="py-3 text-right font-mono text-sm font-bold text-foreground">
-                      {formatPHP(line.disbursed)}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
 
+        <div className="mt-6">
         {mergedFundSources.length === 0 ? (
           <p className="rounded border border-border bg-muted/40 px-4 py-4 text-center text-xs text-muted-foreground">
             No fund sources recorded for this project.
@@ -958,9 +940,6 @@ function BudgetTrackingCard({
                 <tr>
                   <th className="py-3 text-[10px] font-black uppercase tracking-widest text-muted-foreground">
                     Fund Source
-                  </th>
-                  <th className="py-3 text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-                    Source Type
                   </th>
                   <th className="py-3 text-right text-[10px] font-black uppercase tracking-widest text-muted-foreground">
                     Appropriated
@@ -993,11 +972,6 @@ function BudgetTrackingCard({
                       <td className="py-3 text-sm font-semibold text-foreground">
                         {source.name}
                       </td>
-                      <td className="py-3">
-                        <span className="rounded border border-border bg-muted/50 px-2 py-0.5 text-[9px] font-bold uppercase text-muted-foreground">
-                          {source.type}
-                        </span>
-                      </td>
                       <td className="py-3 text-right font-mono text-sm text-muted-foreground">
                         {formatPHP(source.amount)}
                       </td>
@@ -1027,7 +1001,6 @@ function BudgetTrackingCard({
               <tfoot className="border-t-2 border-border">
                 <tr className="bg-muted/30">
                   <td
-                    colSpan={2}
                     className="py-3 text-[10px] font-black uppercase tracking-widest text-muted-foreground"
                   >
                     Total
@@ -1049,6 +1022,7 @@ function BudgetTrackingCard({
             </table>
           </div>
         )}
+        </div>
     </section>
   );
 }
@@ -1112,6 +1086,7 @@ function ActivityFeedCard({ activity }: { activity: ProjectDetailPayload["activi
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           placeholder="Search activity..."
+          aria-label="Search project activity"
           className="ml-auto rounded border border-border bg-background px-3 py-1.5 text-xs outline-none"
         />
       </div>
@@ -1170,29 +1145,79 @@ function ActivityFeedCard({ activity }: { activity: ProjectDetailPayload["activi
 }
 
 function DocumentsCard({
+  tracking,
   documents,
-  onDownload,
+  onOpenDocument,
+  onConfigure,
 }: {
+  tracking: ProjectDetailPayload["document_tracking"];
   documents: ProjectDetailPayload["documents"];
-  onDownload: (documentId: string | undefined, filename: string) => void;
+  onOpenDocument: (document: ProjectDetailPayload["documents"][number], action?: "view" | "download") => void;
+  onConfigure: () => void;
 }) {
+  const hasDtn = Boolean(tracking.dtn_no);
+  const needsScroll = documents.length > 5;
+  const emptyMessage = !hasDtn
+    ? "No DTN is linked yet. Add a DTN to load DTS-uploaded files from Google Drive."
+    : tracking.valid
+      ? "No files were found in the linked Google Drive folder."
+      : "The linked DTN is invalid or the Google Drive folder could not be found.";
+
   return (
     <section className="rounded-lg border border-border/60 bg-card p-6 shadow-sm">
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-xs font-black uppercase tracking-[0.22em]">Documents</h2>
-        <AppIcon name="folder_open" className="h-5 w-5 text-primary" />
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-xs font-black uppercase tracking-[0.22em]">Documents</h2>
+          {hasDtn ? (
+            <p className="mt-1 truncate text-[10px] font-bold uppercase text-muted-foreground">
+              {tracking.dtn_no}
+            </p>
+          ) : null}
+        </div>
+        <button
+          type="button"
+          onClick={onConfigure}
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-primary/10 text-primary transition hover:bg-primary hover:text-primary-foreground"
+          aria-label="Set document tracking number"
+          title="Set document tracking number"
+        >
+          <AppIcon name="edit" className="h-[18px] w-[18px]" />
+        </button>
       </div>
-      <div className="max-h-[220px] space-y-1 overflow-y-auto">
-        {documents.length === 0 ? <p className="py-4 text-sm text-muted-foreground">No documents available.</p> : null}
+
+      <div className={needsScroll ? "max-h-[320px] space-y-1 overflow-y-auto pr-1" : "space-y-1"}>
+        {documents.length === 0 ? (
+          <p className="rounded border border-dashed border-border bg-muted/30 px-3 py-4 text-sm text-muted-foreground">
+            {emptyMessage}
+          </p>
+        ) : null}
         {documents.map((doc) => (
-          <div key={doc.document_id ?? doc.name} className="flex items-center justify-between border-b border-border py-2 last:border-b-0">
+          <div key={doc.document_id ?? doc.name} className="flex items-center justify-between gap-3 border-b border-border py-2 last:border-b-0">
             <div className="min-w-0">
               <p className="truncate text-xs font-semibold">{doc.name}</p>
               <p className="text-[9px] uppercase text-muted-foreground">{formatDate(doc.uploaded_at)}</p>
             </div>
-            <button type="button" onClick={() => onDownload(doc.document_id, doc.name)} className="text-muted-foreground hover:text-primary">
-              <AppIcon name="download" className="h-[18px] w-[18px]" />
-            </button>
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                onClick={() => onOpenDocument(doc, "view")}
+                className="text-[10px] font-black uppercase text-primary hover:underline disabled:cursor-not-allowed disabled:text-muted-foreground"
+                disabled={!doc.view_url}
+              >
+                View
+              </button>
+              {doc.download_url ? (
+                <button
+                  type="button"
+                  onClick={() => onOpenDocument(doc, "download")}
+                  className="text-muted-foreground hover:text-primary"
+                  aria-label={`Download ${doc.name}`}
+                  title={`Download ${doc.name}`}
+                >
+                  <AppIcon name="download" className="h-[18px] w-[18px]" />
+                </button>
+              ) : null}
+            </div>
           </div>
         ))}
       </div>
@@ -1244,18 +1269,22 @@ function ProgressBar({ value }: { value: number }) {
 }
 
 function RiskIssueCard({
+  issues,
   totalIssues,
   openIssues,
   code,
   onOpenIssueModal,
   onOpenResolveModal,
 }: {
+  issues: IssueItem[];
   totalIssues: number;
   openIssues: number;
   code: string;
   onOpenIssueModal: () => void;
   onOpenResolveModal: () => void;
 }) {
+  const visibleIssues = issues.slice(0, 3);
+
   return (
     <section className="rounded-lg border border-border/60 bg-card p-6 shadow-sm">
       <div className="mb-3 flex items-start justify-between gap-3">
@@ -1263,7 +1292,13 @@ function RiskIssueCard({
           <h2 className="text-xs font-black uppercase tracking-[0.22em]">Risk &amp; Issue Log</h2>
           <p className="mt-2 text-[11px] italic text-muted-foreground">Log delays, shortages, or risks that may affect {code}.</p>
         </div>
-        <button type="button" onClick={onOpenIssueModal} className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary">
+        <button
+          type="button"
+          onClick={onOpenIssueModal}
+          className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary"
+          aria-label="Log issue"
+          title="Log issue"
+        >
           <AppIcon name="add" className="h-[18px] w-[18px]" />
         </button>
       </div>
@@ -1271,6 +1306,25 @@ function RiskIssueCard({
         <span>{totalIssues} issues logged</span>
         <span>{openIssues} open</span>
       </div>
+      {visibleIssues.length ? (
+        <div className="mb-4 space-y-2">
+          {visibleIssues.map((issue) => (
+            <div key={issue.issue_id} className="rounded border border-border bg-muted/30 px-3 py-2">
+              <div className="flex items-center justify-between gap-2">
+                <p className="truncate text-xs font-bold text-foreground">{issue.issue_name}</p>
+                <span className={`shrink-0 rounded px-2 py-0.5 text-[9px] font-black uppercase ${
+                  issue.status === "Open" ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"
+                }`}>
+                  {issue.status}
+                </span>
+              </div>
+              <p className="mt-1 text-[10px] font-bold uppercase text-muted-foreground">
+                {issue.issue_category} • {formatDate(issue.date_reported ?? "")}
+              </p>
+            </div>
+          ))}
+        </div>
+      ) : null}
       <button type="button" onClick={onOpenResolveModal} disabled={openIssues === 0} className="w-full rounded border border-border py-2 text-[10px] font-bold uppercase text-primary disabled:cursor-not-allowed disabled:text-muted-foreground">
         Resolve an Issue
       </button>

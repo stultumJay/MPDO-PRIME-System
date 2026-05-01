@@ -26,10 +26,10 @@ const sectorOptions: MapSector[] = [
 const initialSectorState: Record<MapSector, boolean> = {
   Infrastructure: true,
   Social: true,
-  Economic: false,
-  Environment: false,
-  Institutional: false,
-  Others: false,
+  Economic: true,
+  Environment: true,
+  Institutional: true,
+  Others: true,
 };
 
 const sectorMeta: Record<MapSector, { marker: string }> = {
@@ -51,7 +51,7 @@ export default function Map() {
   const [search, setSearch] = useState("");
   const [barangay, setBarangay] = useState("All Barangays");
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
-  const [selectedStatus, setSelectedStatus] = useState<MapStatus>("On Track");
+  const [selectedStatus, setSelectedStatus] = useState<MapStatus | "All Status">("All Status");
   const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null);
   const [legendOpen, setLegendOpen] = useState(true);
   const [sectorState, setSectorState] =
@@ -98,7 +98,8 @@ export default function Map() {
 
     return markers.filter((marker) => {
       const matchesSector = sectorState[marker.sector];
-      const matchesStatus = marker.status === selectedStatus;
+      const matchesStatus =
+        selectedStatus === "All Status" || marker.status === selectedStatus;
       const matchesBarangay =
         barangay === "All Barangays" || marker.barangay === barangay;
       const matchesSearch =
@@ -187,7 +188,8 @@ export default function Map() {
 
       L.marker([marker.lat, marker.lng], {
         icon,
-        title: `${marker.name} (${marker.code})`,
+        title: `Project location: ${marker.name} (${marker.code})`,
+        alt: `Project location: ${marker.name} (${marker.code})`,
       })
         .on("click", () => setSelectedMarkerId(marker.id))
         .addTo(layer);
@@ -225,6 +227,7 @@ export default function Map() {
 
   const statusCounts = useMemo(
     () => ({
+      "All Status": markers.length,
       "On Track": markers.filter((marker) => marker.status === "On Track").length,
       Delayed: markers.filter((marker) => marker.status === "Delayed").length,
       Completed: markers.filter((marker) => marker.status === "Completed").length,
@@ -253,51 +256,17 @@ export default function Map() {
   };
 
   return (
-    <AppShell>
+    <AppShell
+      topbar={{
+        title: "Map-Based Monitoring",
+        showSearch: true,
+        searchValue: search,
+        onSearchChange: setSearch,
+        searchPlaceholder: "Search projects by location...",
+      }}
+    >
       <div className="flex min-h-0 flex-1 overflow-hidden bg-[#edf2f6]">
         <section className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          <header className="flex h-[50px] items-center justify-between border-b border-border/60 bg-card px-6">
-            <div className="flex items-center gap-8">
-              <h2 className="text-[13px] font-black uppercase tracking-[0.02em] text-foreground">
-                Map-Based Monitoring
-              </h2>
-              <div className="relative hidden md:block">
-                <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[18px] text-muted-foreground">
-                  search
-                </span>
-                <input
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Search projects by location..."
-                  className="h-10 w-[360px] rounded-xl border border-border bg-background pl-10 pr-4 text-sm text-foreground outline-none transition focus:border-primary"
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center gap-4">
-              {["notifications", "help", "apps"].map((icon) => (
-                <button
-                  key={icon}
-                  type="button"
-                  className="text-foreground transition hover:text-primary"
-                >
-                  <span className="material-symbols-outlined text-[22px]">{icon}</span>
-                </button>
-              ))}
-              <div className="ml-2 flex items-center gap-3 border-l border-border pl-4">
-                <div className="text-right leading-tight">
-                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-foreground">
-                    Admin Portal
-                  </p>
-                  <p className="text-sm font-bold text-foreground">Alubijid Admin</p>
-                </div>
-                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/15 text-[12px] font-black text-primary">
-                  JC
-                </div>
-              </div>
-            </div>
-          </header>
-
           <div className="grid min-h-0 flex-1 grid-cols-[224px_minmax(0,1fr)] overflow-hidden">
             <aside className="flex min-h-0 flex-col border-r border-border/60 bg-[#eef3f7]">
               <div className="px-4 py-4">
@@ -364,7 +333,7 @@ export default function Map() {
                       Status Focus
                     </p>
                     <div className="space-y-2">
-                      {(["On Track", "Delayed", "Completed"] as MapStatus[]).map(
+                      {(["All Status", "On Track", "Delayed", "Completed"] as const).map(
                         (status) => {
                           const isActive = selectedStatus === status;
 

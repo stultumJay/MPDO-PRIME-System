@@ -21,6 +21,8 @@ const fallbackYears = ["2026"];
 const fallbackSectors = ["All Sectors"];
 const statuses = ["All Status", "On Schedule", "Slight Delay", "Major Delay"];
 const PAGE_SIZE = 10;
+const ALL_SECTORS = "All Sectors";
+const ALL_STATUS = "All Status";
 
 const statusMeta: Record<TimelineStatus, StatusMeta> = {
   "On Schedule": {
@@ -60,6 +62,19 @@ function getBarPosition(project: TimelineProject) {
   return { left: `${left}%`, width: `${width}%` };
 }
 
+function normalizeFilter(value: string) {
+  return value.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function findOptionByNormalized(options: string[], value: string) {
+  const key = normalizeFilter(value);
+  return options.find((option) => normalizeFilter(option) === key);
+}
+
+function isAllOption(value: string, allValue: string) {
+  return normalizeFilter(value) === normalizeFilter(allValue);
+}
+
 export default function Gannt() {
   const [searchTerm, setSearchTerm] = useState("");
   const [payload, setPayload] = useState<GanttPayload | null>(null);
@@ -85,6 +100,9 @@ export default function Gannt() {
         setPayload(data);
         loadedYearRef.current = String(data.fiscalYear);
         if (selectedYear === null) setSelectedYear(String(data.fiscalYear));
+        setSelectedSector((current) =>
+          findOptionByNormalized(data.sectors, current) ?? ALL_SECTORS,
+        );
       } catch (err) {
         if (!mounted) return;
         setError(err instanceof Error ? err.message : "Failed to load timeline data.");
@@ -104,25 +122,37 @@ export default function Gannt() {
   const sectors = payload?.sectors ?? fallbackSectors;
   const timelineProjects = payload?.projects ?? [];
 
+  useEffect(() => {
+    const canonical = findOptionByNormalized(sectors, selectedSector);
+    if (!canonical) setSelectedSector(ALL_SECTORS);
+    else if (canonical !== selectedSector) setSelectedSector(canonical);
+  }, [sectors, selectedSector]);
+
   const filteredProjects = useMemo(() => {
-    const normalizedSearch = searchTerm.trim().toLowerCase();
+    const normalizedSearch = normalizeFilter(searchTerm);
+    const selectedSectorKey = normalizeFilter(selectedSector);
+    const selectedStatusKey = normalizeFilter(selectedStatus);
 
     return timelineProjects.filter((project) => {
       const matchesSearch =
         !normalizedSearch ||
         [project.name, project.sector, project.status].some((value) =>
-          value.toLowerCase().includes(normalizedSearch),
+          normalizeFilter(value).includes(normalizedSearch),
         );
-      const matchesSector = selectedSector === "All Sectors" || project.sector === selectedSector;
-      const matchesStatus = selectedStatus === "All Status" || project.status === selectedStatus;
+      const matchesSector =
+        isAllOption(selectedSector, ALL_SECTORS) ||
+        normalizeFilter(project.sector) === selectedSectorKey;
+      const matchesStatus =
+        isAllOption(selectedStatus, ALL_STATUS) ||
+        normalizeFilter(project.status) === selectedStatusKey;
 
       return matchesSearch && matchesSector && matchesStatus;
     });
-  }, [searchTerm, selectedSector, selectedStatus]);
+  }, [searchTerm, selectedSector, selectedStatus, timelineProjects]);
 
   useEffect(() => {
     setPage(1);
-  }, [searchTerm, selectedSector, selectedStatus]);
+  }, [searchTerm, selectedSector, selectedStatus, selectedYear]);
 
   const pageCount = Math.max(1, Math.ceil(filteredProjects.length / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
@@ -138,48 +168,16 @@ export default function Gannt() {
   );
 
   return (
-    <AppShell>
+    <AppShell
+      topbar={{
+        title: "Gantt Chart",
+        showSearch: true,
+        searchValue: searchTerm,
+        onSearchChange: setSearchTerm,
+        searchPlaceholder: "Search projects...",
+      }}
+    >
       <section className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
-        <header className="flex h-16 shrink-0 items-center justify-between border-b border-border bg-card/90 px-6 backdrop-blur">
-          <div className="hidden w-full max-w-md md:block">
-            <label className="relative block">
-              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-lg text-muted-foreground">
-                search
-              </span>
-              <input
-                className="h-10 w-full rounded-xl border border-transparent bg-slate-100 pl-10 pr-4 text-sm font-medium text-slate-700 outline-none transition focus:border-primary/30 focus:bg-white focus:ring-2 focus:ring-primary/20"
-                placeholder="Search projects..."
-                type="search"
-                value={searchTerm}
-                onChange={(event) => setSearchTerm(event.target.value)}
-              />
-            </label>
-          </div>
-
-          <div className="ml-auto flex shrink-0 items-center gap-2">
-            <button className="relative rounded-full p-2 text-slate-500 transition hover:bg-slate-100 hover:text-primary" type="button">
-              <span className="material-symbols-outlined text-xl">notifications</span>
-              <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-destructive" />
-            </button>
-            <button className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100 hover:text-primary" type="button">
-              <span className="material-symbols-outlined text-xl">help</span>
-            </button>
-            <button className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100 hover:text-primary" type="button">
-              <span className="material-symbols-outlined text-xl">apps</span>
-            </button>
-            <div className="mx-2 hidden h-8 w-px bg-border sm:block" />
-            <div className="hidden text-right sm:block">
-              <p className="text-xs font-black leading-tight text-slate-900">Admin User</p>
-              <p className="mt-0.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-                Project Director
-              </p>
-            </div>
-            <div className="flex h-9 w-9 items-center justify-center rounded-full border border-primary/20 bg-primary-container text-xs font-black text-on-primary-container">
-              AU
-            </div>
-          </div>
-        </header>
-
         <main className="min-h-0 flex-1 overflow-auto px-5 py-6 lg:px-8">
           <div className="mx-auto flex max-w-[1220px] flex-col gap-5">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -202,7 +200,7 @@ export default function Gannt() {
                   options={years}
                   onChange={setSelectedYear}
                 />
-                <CompactSelect label="Sector" value={selectedSector} options={sectors} onChange={setSelectedSector} />
+                <CompactSelect label="Sector" value={selectedSector || ALL_SECTORS} options={sectors} onChange={setSelectedSector} />
                 <CompactSelect label="Status" value={selectedStatus} options={statuses} onChange={setSelectedStatus} />
               </div>
             </div>
@@ -333,6 +331,7 @@ export default function Gannt() {
                     disabled={currentPage === 1}
                     onClick={() => setPage((value) => Math.max(1, value - 1))}
                     type="button"
+                    aria-label="Previous timeline page"
                   >
                     <span className="material-symbols-outlined text-sm">chevron_left</span>
                   </button>
@@ -345,6 +344,7 @@ export default function Gannt() {
                     disabled={currentPage >= pageCount}
                     onClick={() => setPage((value) => Math.min(pageCount, value + 1))}
                     type="button"
+                    aria-label="Next timeline page"
                   >
                     <span className="material-symbols-outlined text-sm">chevron_right</span>
                   </button>
@@ -369,16 +369,18 @@ function CompactSelect({
   options: string[];
   onChange: (value: string) => void;
 }) {
+  const selectedValue = findOptionByNormalized(options, value) ?? options[0] ?? "";
+
   return (
     <label className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 shadow-sm">
       <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">{label}</span>
       <select
         className="border-none bg-transparent p-0 text-[11px] font-black text-slate-800 outline-none focus:ring-0"
-        value={value}
+        value={selectedValue}
         onChange={(event) => onChange(event.target.value)}
       >
         {options.map((option) => (
-          <option key={option}>{option}</option>
+          <option key={option} value={option}>{option}</option>
         ))}
       </select>
     </label>

@@ -122,6 +122,7 @@ type AuditResponse = {
   entity?: string;
   entity_id?: string | null;
   description?: string | null;
+  performed_by_name?: string | null;
   created_at?: string;
 }[];
 
@@ -148,9 +149,13 @@ async function getSummary(fiscalYear?: number): Promise<SummaryResponse> {
   });
 }
 
-async function getFinancialTrend(months = 6): Promise<FinancialResponse[]> {
+async function getFinancialTrend(
+  months = 6,
+  fiscalYear?: number,
+): Promise<FinancialResponse[]> {
   return requestJson<FinancialResponse[]>("/dashboard/allocation-vs-disbursement", {
     months,
+    fiscal_year: fiscalYear,
   });
 }
 
@@ -178,11 +183,11 @@ export async function getOverviewData(
   options: OverviewQuery = {},
 ): Promise<OverviewPayload> {
   const months = options.months ?? 6;
-  const pulseLimit = options.pulseLimit ?? 8;
+  const pulseLimit = options.pulseLimit ?? 5;
 
   const [summary, financial, sectors, activity, markers] = await Promise.all([
     getSummary(options.fiscalYear),
-    getFinancialTrend(months),
+    getFinancialTrend(months, options.fiscalYear),
     getSectorImpact(options.fiscalYear),
     getInstitutionalPulse(pulseLimit),
     getMapMarkers(options.fiscalYear).catch(() => [] as MapResponse),
@@ -226,11 +231,13 @@ export async function getOverviewData(
       const action = item.action ?? "activity";
       const entityLabel = formatLabel(item.entity);
       const detail = item.description?.trim() || `${formatLabel(action)} recorded`;
+      const actor = item.performed_by_name?.trim();
 
       return {
         id: item.audit_id ?? String(item.id ?? index),
         project_title: entityLabel,
-        detail,
+        // Keeping the actor in the pulse detail makes recent activity accountable on the dashboard too.
+        detail: actor && actor !== "System" ? `${actor}: ${detail}` : detail,
         highlight: formatLabel(action),
         highlight_tone: toneFromAction(action),
         occurred_at: item.created_at ?? new Date().toISOString(),

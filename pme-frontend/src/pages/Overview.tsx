@@ -1,14 +1,15 @@
-import { useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { AppShell } from "@/components/layout/AppShell";
-import { Topbar } from "@/components/layout/Topbar";
 import { KpiCard } from "@/components/dashboard/KpiCard";
 import { AppIcon } from "@/components/ui/AppIcon";
 import {
   getOverviewData,
   type OverviewPayload,
 } from "@/services/overview.service";
+
+const SpatialSnapshotMap = lazy(() => import('../components/dashboard/SpatialSnapshotMap'))
 
 function formatPHP(amount: number): string {
   if (amount >= 1_000_000) return `₱${(amount / 1_000_000).toFixed(1)}M`;
@@ -25,8 +26,19 @@ function relativeTime(iso: string): string {
   return days === 1 ? "Yesterday" : `${days} Days Ago`;
 }
 
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
+function buildFallbackMonths(count: number) {
+  const formatter = new Intl.DateTimeFormat("en-US", { month: "long" });
+  const current = new Date();
+  current.setDate(1);
+
+  return Array.from({ length: count }, (_, index) => {
+    const date = new Date(current.getFullYear(), current.getMonth() - (count - 1 - index), 1);
+    return {
+      month: formatter.format(date),
+      allocated: 0,
+      utilized: 0,
+    };
+  });
 }
 
 export default function Overview() {
@@ -37,26 +49,63 @@ export default function Overview() {
     queryFn: () =>
       getOverviewData({
         months: 6,
-        pulseLimit: 8,
+        pulseLimit: 5,
       }),
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
   });
   const data = overviewQuery.data ?? null;
   const loading = overviewQuery.isLoading;
   const error = overviewQuery.error instanceof Error ? overviewQuery.error.message : null;
 
-  const markerBounds = useMemo(() => {
-    if (!data?.markers.length) return null;
+  const [showMap, setShowMap] = useState(false)
 
-    const lats = data.markers.map((m) => m.latitude);
-    const lngs = data.markers.map((m) => m.longitude);
+  useEffect(() => {
+    const t = setTimeout(() => setShowMap(true), 300)
+    return () => clearTimeout(t)
+  }, [])
 
-    return {
-      minLat: Math.min(...lats),
-      maxLat: Math.max(...lats),
-      minLng: Math.min(...lngs),
-      maxLng: Math.max(...lngs),
-    };
-  }, [data]);
+  const financial = data?.financial ?? [];
+  const chartData = useMemo(() => {
+    const seen = new Map<string, { month: string; allocated: number; utilized: number }>();
+    const monthFormatter = new Intl.DateTimeFormat("en-US", { month: "long" });
+
+    financial.forEach((row, index) => {
+      const key = row.year ? `${row.year}-${row.month}` : `${index}-${row.month}`;
+      if (!seen.has(key)) {
+        const parsedDate = new Date(`${row.month} 1, ${row.year ?? new Date().getFullYear()}`);
+        seen.set(key, {
+          month: Number.isNaN(parsedDate.getTime()) ? row.month : monthFormatter.format(parsedDate),
+          allocated: row.allocated,
+          utilized: row.utilized,
+        });
+        return;
+      }
+
+      const current = seen.get(key)!;
+      current.allocated += row.allocated;
+      current.utilized += row.utilized;
+    });
+
+    const months = [...seen.values()];
+    return months.length ? months : buildFallbackMonths(6);
+  }, [financial]);
+  const maxFinancial = Math.max(...chartData.flatMap((m) => [m.allocated, m.utilized]), 1);
+  
+
+  // const markerBounds = useMemo(() => {
+  //   if (!data?.markers.length) return null;
+
+  //   const lats = data.markers.map((m) => m.latitude);
+  //   const lngs = data.markers.map((m) => m.longitude);
+
+  //   return {
+  //     minLat: Math.min(...lats),
+  //     maxLat: Math.max(...lats),
+  //     minLng: Math.min(...lngs),
+  //     maxLng: Math.max(...lngs),
+  //   };
+  // }, [data]);
 
   if (loading && !data) {
     return (
@@ -87,43 +136,44 @@ export default function Overview() {
   }
 
   const overview = data as OverviewPayload;
-  const { kpis, financial, sectors, activity, markers } = overview;
+  const { kpis, sectors, activity, markers } = overview;
+  const filteredSectors = sectors;
+  const filteredActivity = activity;
+  const filteredMarkers = markers;
 
-  const maxFinancial = Math.max(
-    ...financial.flatMap((m) => [m.allocated, m.utilized]),
-    1,
-  );
+  // const markerPosition = (latitude: number, longitude: number) => {
+  //   if (!markerBounds) return { left: 50, top: 50 };
 
-  const markerPosition = (latitude: number, longitude: number) => {
-    if (!markerBounds) return { left: 50, top: 50 };
+  //   const lngSpan = markerBounds.maxLng - markerBounds.minLng;
+  //   const latSpan = markerBounds.maxLat - markerBounds.minLat;
 
-    const lngSpan = markerBounds.maxLng - markerBounds.minLng;
-    const latSpan = markerBounds.maxLat - markerBounds.minLat;
+  //   const left =
+  //     lngSpan === 0
+  //       ? 50
+  //       : ((longitude - markerBounds.minLng) / lngSpan) * 100;
 
-    const left =
-      lngSpan === 0
-        ? 50
-        : ((longitude - markerBounds.minLng) / lngSpan) * 100;
+  //   const top =
+  //     latSpan === 0
+  //       ? 50
+  //       : 100 - ((latitude - markerBounds.minLat) / latSpan) * 100;
 
-    const top =
-      latSpan === 0
-        ? 50
-        : 100 - ((latitude - markerBounds.minLat) / latSpan) * 100;
-
-    return {
-      left: clamp(left, 5, 95),
-      top: clamp(top, 5, 85),
-    };
-  };
+  //   return {
+  //     left: clamp(left, 5, 95),
+  //     top: clamp(top, 5, 85),
+  //   };
+  // };
 
   return (
-    <AppShell>
-      <Topbar title="Executive Dashboard Overview" />
+    <AppShell
+      topbar={{
+        title: "Executive Dashboard Overview",
+      }}
+    >
 
-      <div className="flex flex-1 flex-col gap-6 overflow-auto p-6">
+      <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-auto p-5 xl:gap-6 xl:p-6">
         <header className="flex shrink-0 items-center justify-between">
           <div>
-            <span className="mb-1 block text-[9px] font-bold uppercase tracking-[0.2em] text-primary">
+            <span className="mb-1 block text-[9px] font-bold uppercase tracking-[0.2em] text-[#04776d]">
               System Intelligence
             </span>
             <h1 className="text-2xl font-black tracking-tight">
@@ -185,19 +235,19 @@ export default function Overview() {
           />
         </section>
 
-        <div className="grid min-h-0 grid-cols-1 gap-6 xl:grid-cols-12">
-          <div className="flex flex-col gap-6 xl:col-span-8">
-            <div className="flex min-h-[280px] flex-1 flex-col rounded border border-border/50 bg-card p-5 shadow-sm">
+        <div className="grid min-h-0 grid-cols-1 gap-5 xl:grid-cols-12 xl:gap-6">
+          <div className="flex flex-col gap-5 xl:col-span-8 xl:gap-6">
+            <div className="flex h-[360px] flex-col overflow-hidden rounded border border-border/50 bg-card p-5 shadow-sm">
               <div className="mb-6 flex items-center justify-between">
                 <div>
-                  <h3 className="text-sm font-bold">Financial Trajectory</h3>
+                  <h2 className="text-sm font-bold">Financial Trajectory</h2>
                   <p className="text-[10px] text-muted-foreground">
                     Allocated vs. Utilized Capital (6M Cycle)
                   </p>
                 </div>
-                  <div className="flex gap-4 text-[10px] font-bold">
+                <div className="flex gap-4 text-[10px] font-bold">
                   <div className="flex items-center gap-1.5">
-                    <span className="h-2 w-2 rounded-sm bg-primary" />
+                    <span className="h-2 w-2 rounded-sm bg-emerald-500" />
                     ALLOCATED
                   </div>
                   <div className="flex items-center gap-1.5">
@@ -207,48 +257,59 @@ export default function Overview() {
                 </div>
               </div>
 
-              <div className="flex flex-1 items-end justify-between gap-2 px-4 pb-2">
-                {financial.map((m) => {
-                  const alloc = (m.allocated / maxFinancial) * 100;
-                  const util =
-                    m.allocated > 0 ? (m.utilized / m.allocated) * 100 : 0;
+              <div className="flex min-h-0 flex-1 flex-col overflow-x-auto px-1 pb-1">
+                <div className="flex h-[250px] min-w-[520px] items-end gap-4">
+                  {chartData.map((month) => {
+                    const allocatedHeight = month.allocated > 0 ? Math.max(14, (month.allocated / maxFinancial) * 100) : 12;
+                    const utilizedHeight = month.utilized > 0 ? Math.max(14, (month.utilized / maxFinancial) * 100) : 12;
+                    const key = month.month;
 
-                  return (
-                    <div
-                      key={`${m.month}-${m.year ?? ""}`}
-                      className="group flex h-full flex-1 flex-col items-center justify-end gap-2"
-                      onMouseEnter={() => setHoveredMonth(`${m.month}-${m.year ?? ""}`)}
-                      onMouseLeave={() => setHoveredMonth(null)}
-                    >
+                    return (
                       <div
-                        className="relative w-10 rounded-t bg-primary/10"
-                        style={{ height: `${alloc}%` }}
+                        key={key}
+                        className="group relative flex h-full min-w-14 flex-1 flex-col items-center justify-end gap-2"
+                        onMouseEnter={() => setHoveredMonth(key)}
+                        onMouseLeave={() => setHoveredMonth(null)}
                       >
-                        <div
-                          className="absolute bottom-0 w-full rounded-t bg-sky-500"
-                          style={{ height: `${util}%` }}
-                        />
-                        {hoveredMonth === `${m.month}-${m.year ?? ""}` ? (
-                          <div className="absolute -top-20 left-1/2 z-10 w-36 -translate-x-1/2 rounded bg-foreground px-3 py-2 text-[10px] font-bold text-background shadow-lg">
-                            <p>{m.month} {m.year ?? ""}</p>
-                            <p>Allocated: {formatPHP(m.allocated)}</p>
-                            <p>Utilized: {formatPHP(m.utilized)}</p>
+                        {hoveredMonth === key ? (
+                          <div className="absolute -top-20 z-10 w-40 rounded bg-foreground px-3 py-2 text-[10px] font-bold text-background shadow-lg">
+                            <p>{month.month}</p>
+                            <p>Allocated: {formatPHP(month.allocated)}</p>
+                            <p>Utilized: {formatPHP(month.utilized)}</p>
                           </div>
                         ) : null}
+                        <div className="flex h-[210px] w-full items-end justify-center gap-2 px-1">
+                          <div className="flex h-full w-7 min-w-6 items-end rounded-t bg-emerald-100">
+                            <div
+                              className="w-full rounded-t bg-emerald-500 transition-all duration-300"
+                              style={{
+                                height: `${allocatedHeight}%`,
+                                opacity: month.allocated > 0 ? 1 : 0.28,
+                              }}
+                            />
+                          </div>
+                          <div className="flex h-full w-7 min-w-6 items-end rounded-t bg-sky-100">
+                            <div
+                              className="w-full rounded-t bg-sky-500 transition-all duration-300"
+                              style={{
+                                height: `${utilizedHeight}%`,
+                                opacity: month.utilized > 0 ? 1 : 0.28,
+                              }}
+                            />
+                          </div>
+                        </div>
+                        <span className="text-[10px] font-bold text-muted-foreground">{month.month}</span>
                       </div>
-                      <span className="text-[10px] font-bold text-muted-foreground">
-                        {m.month}
-                      </span>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
             </div>
 
             <div className="shrink-0 rounded border border-border/50 bg-card p-5 shadow-sm">
-              <h3 className="mb-5 text-sm font-bold">Sector Impact Analysis</h3>
+              <h2 className="mb-5 text-sm font-bold">Sector Impact Analysis</h2>
               <div className="grid grid-cols-1 gap-x-12 gap-y-4 md:grid-cols-2">
-                {sectors.map((s) => (
+                {filteredSectors.map((s) => (
                   <div key={s.sector_id} className="space-y-1.5">
                     <div className="flex justify-between text-[10px] font-bold uppercase text-muted-foreground">
                       <span>{s.sector_name}</span>
@@ -266,10 +327,10 @@ export default function Overview() {
             </div>
           </div>
 
-          <div className="flex flex-col gap-6 xl:col-span-4">
-            <div className="flex min-h-[280px] flex-1 flex-col rounded border border-border/50 bg-card p-5 shadow-sm">
+          <div className="flex flex-col gap-5 xl:col-span-4 xl:gap-6">
+            <div className="flex min-h-[280px] flex-1 flex-col overflow-hidden rounded border border-border/50 bg-card p-5 shadow-sm">
               <div className="mb-5 flex items-center justify-between">
-                <h3 className="text-sm font-bold">Institutional Pulse</h3>
+                <h2 className="text-sm font-bold">Institutional Pulse</h2>
                 <button
                   type="button"
                   onClick={() => void navigate({ to: "/audit" })}
@@ -279,8 +340,8 @@ export default function Overview() {
                 </button>
               </div>
 
-              <div className="flex-1 space-y-6 overflow-y-auto pr-2">
-                {activity.map((evt, idx) => {
+              <div className="flex-1 space-y-4 pr-1">
+                {filteredActivity.map((evt, idx) => {
                   const tone =
                     evt.highlight_tone === "danger"
                       ? "bg-status-delayed"
@@ -295,8 +356,8 @@ export default function Overview() {
 
                   return (
                     <div key={evt.id} className="relative flex gap-4">
-                      {idx < activity.length - 1 && (
-                        <div className="absolute bottom-[-24px] left-[7px] top-4 w-px bg-border" />
+                      {idx < filteredActivity.length - 1 && (
+                        <div className="absolute bottom-[-18px] left-[7px] top-4 w-px bg-border" />
                       )}
                       <div
                         className={`z-10 mt-0.5 h-4 w-4 shrink-0 rounded-full ${tone} border-2 border-card ring-1 ring-border`}
@@ -319,7 +380,7 @@ export default function Overview() {
                   );
                 })}
 
-                {!activity.length && (
+                {!filteredActivity.length && (
                   <p className="text-sm text-muted-foreground">
                     No recent activity available.
                   </p>
@@ -329,55 +390,38 @@ export default function Overview() {
 
             <div className="flex h-[280px] shrink-0 flex-col rounded border border-border/50 bg-card p-2 shadow-sm">
               <div className="px-3 py-2">
-                <h3 className="text-xs font-bold">Spatial Distribution</h3>
+                <h2 className="text-xs font-bold">Spatial Distribution</h2>
                 <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">
                   Map Monitoring Preview
                 </p>
               </div>
-
-              <div className="m-1 relative flex-1 overflow-hidden rounded bg-muted">
-                <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-status-ongoing/5" />
-
-                {markers.map((mk, index) => {
-                  const { left, top } = markerPosition(mk.latitude, mk.longitude);
-
-                  const tone =
-                    mk.status === "delayed"
-                      ? "bg-status-delayed"
-                      : mk.status === "completed"
-                        ? "bg-status-completed"
-                        : "bg-primary";
-
-                  return (
-                    <div
-                      key={mk.project_id}
-                      className={`absolute h-2.5 w-2.5 rounded-full border-2 border-card shadow-lg ${
-                        index === 0 ? "animate-pulse h-3 w-3" : ""
-                      } ${tone}`}
-                      style={{
-                        left: `${left}%`,
-                        top: `${top}%`,
-                      }}
-                      title={mk.title}
+              <div className="m-1 flex-1 overflow-hidden rounded bg-muted">
+                <div className="relative h-full w-full">
+                  {showMap ? (
+                    <Suspense fallback={<div className="w-full h-full bg-muted animate-pulse rounded" />}>
+                      <SpatialSnapshotMap
+                        projects={filteredMarkers.map(mk => ({
+                        id: mk.project_id,
+                        latitude: mk.latitude,
+                        longitude: mk.longitude,
+                        sector: mk.sector ?? "OTHERS",
+                        name: mk.title,
+                        status: mk.status,
+                      }))}
                     />
-                  );
-                })}
-
-                {!markers.length && (
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <p className="text-xs text-muted-foreground">
-                      No mapped projects available.
-                    </p>
-                  </div>
-                )}
-
-                <button
-                  type="button"
-                  onClick={() => void navigate({ to: "/map" })}
-                  className="absolute bottom-3 right-3 rounded border border-border bg-card px-3 py-1.5 text-[10px] font-bold text-foreground shadow-sm transition-colors hover:bg-muted"
-                >
-                  OPEN INTERACTIVE MAP
-                </button>
+                    </Suspense>
+                  ) : (
+                    <div className="w-full h-full bg-muted animate-pulse rounded" />
+                  )}
+    
+                  <button
+                    type="button"
+                    onClick={() => void navigate({ to: "/map" })}
+                    className="absolute bottom-3 right-3 rounded border border-border bg-card px-3 py-1.5 text-[10px] font-bold text-foreground shadow-sm transition-colors hover:bg-muted"
+                  >
+                    OPEN INTERACTIVE MAP
+                  </button>
+                </div>
               </div>
             </div>
           </div>
