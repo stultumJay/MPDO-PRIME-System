@@ -252,7 +252,7 @@ export default function ProjectPage() {
 function ProjectRow({ p }: { p: ProjectListItem }) {
   return (
     <tr className="border-t border-border/50 transition-colors hover:bg-muted/40">
-      <td className="px-4 py-3 font-mono text-[10px] text-muted-foreground">
+      <td className="px-4 py-3 font-mono text-[10px] font-black text-primary">
         {p.project_code}
       </td>
       <td className="px-4 py-3 font-bold text-foreground">
@@ -263,8 +263,8 @@ function ProjectRow({ p }: { p: ProjectListItem }) {
           {p.project_title}
         </a>
       </td>
-      <td className="px-4 py-3 text-muted-foreground">{p.location}</td>
-      <td className="px-4 py-3">{p.sector_name}</td>
+      <td className="px-4 py-3 font-semibold text-slate-800">{p.location}</td>
+      <td className="px-4 py-3 font-bold text-slate-900">{p.sector_name}</td>
       <td className="px-4 py-3">
         <span
           className={`inline-block rounded px-2 py-0.5 text-[10px] font-bold uppercase ${PROJECT_STATUS_TONE[p.status]}`}

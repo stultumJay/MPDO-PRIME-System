@@ -1,4 +1,4 @@
-import { apiBlobRequest, apiRequest, withQuery, type ApiQuery } from "./api";
+import { apiRequest, withQuery, type ApiQuery } from "./api";
 
 export type ProjectStatus = "planned" | "in_progress" | "completed" | "delayed";
 
@@ -157,6 +157,7 @@ export interface ProjectDetailPayload {
     actual_end_date?: string | null;
     is_integrated?: boolean;
     locational_clearance_status?: boolean;
+    dtn_no?: string | null;
   };
   sector_name: string;
   program_name: string;
@@ -212,6 +213,8 @@ export interface ProjectDetailPayload {
   finance_ledger: {
     fund_sources: {
       appr_fund_source_id: string;
+      appropriation_id: string;
+      fund_source_id: string;
       fund_name: string;
       fund_category: string;
       expense_class: string;
@@ -280,11 +283,34 @@ export interface ProjectDetailPayload {
     actor: string;
     occurred_at: string;
   }[];
-  documents: { document_id?: string; name: string; uploaded_at: string }[];
+  documents: {
+    document_id?: string;
+    name: string;
+    uploaded_at: string;
+    view_url?: string | null;
+    download_url?: string | null;
+  }[];
+  document_tracking: ProjectDocumentResponse;
 }
 
 type BackendProjectRecord = Record<string, any>;
 type BackendIssueRecord = Record<string, any>;
+
+export interface ProjectDocumentItem {
+  id: string;
+  name: string;
+  view_url?: string | null;
+  download_url?: string | null;
+  created_at?: string | null;
+}
+
+export interface ProjectDocumentResponse {
+  project_id: string;
+  dtn_no?: string | null;
+  valid: boolean;
+  folder_url?: string | null;
+  documents: ProjectDocumentItem[];
+}
 
 // ─────────────────────────────────────────────
 // HELPERS
@@ -332,9 +358,10 @@ function normalizeProjectItem(raw: BackendProjectRecord): ProjectListItem {
   };
 }
 
-function normalizeIssueSeverity(value: unknown): "low" | "medium" | "high" {
+function normalizeIssueSeverity(value: unknown): "low" | "medium" | "high" | "critical" {
   const text = asString(value, "medium").toLowerCase();
-  if (text.includes("high") || text.includes("critical")) return "high";
+  if (text.includes("critical")) return "critical";
+  if (text.includes("high")) return "high";
   if (text.includes("low")) return "low";
   return "medium";
 }
@@ -347,6 +374,15 @@ function normalizeProjectIssues(rows: BackendIssueRecord[]): ProjectDetailPayloa
     reported_at: asString(row.created_at ?? row.date_reported, new Date().toISOString()),
     resolved: asString(row.status).toLowerCase() === "resolved",
   }));
+}
+
+function unwrapProjectIssues(payload: unknown): BackendIssueRecord[] {
+  if (Array.isArray(payload)) return payload;
+  if (payload && typeof payload === "object") {
+    const source = payload as { items?: BackendIssueRecord[]; data?: BackendIssueRecord[]; results?: BackendIssueRecord[]; rows?: BackendIssueRecord[] };
+    return source.items ?? source.data ?? source.results ?? source.rows ?? [];
+  }
+  return [];
 }
 
 function normalizePhaseStatus(raw: unknown, progressPercent: number): string {
@@ -431,7 +467,7 @@ function buildProjectActivity(
     title: `${asString(row.document_name ?? row.name, "Project document")} added`,
     detail: "A new project document was attached to this record.",
     actor: "Document Tracking",
-    occurred_at: asString(row.uploaded_at, new Date().toISOString()),
+    occurred_at: asString(row.uploaded_at ?? row.created_at, new Date().toISOString()),
   }));
 
   return [...financeEntries, ...issueEntries, ...timelineEntries, ...documentEntries].sort(
@@ -447,6 +483,7 @@ function normalizeDetail(
   phaseRows: BackendProjectRecord[] = [],
   financeSummary?: BackendProjectRecord,
   financeLedger?: BackendProjectRecord,
+  documentResponse?: BackendProjectRecord,
 ): ProjectDetailPayload {
   const projectRaw = {
     ...(raw.project ?? {}),
@@ -464,6 +501,32 @@ function normalizeDetail(
       if (selectedFromApi > 0) return selectedFromApi;
       return aipYears[0] ?? null;
     })();
+  const selectedAipContextRaw =
+    aipContextsRaw.find((row: any) => toNumber(row?.fiscal_year, 0) === selected) ?? null;
+  const selectedPerformance = selectedAipContextRaw?.performance;
+  const targetQ1 = toNumber(selectedPerformance?.target_q1);
+  const targetQ2 = toNumber(selectedPerformance?.target_q2);
+  const targetQ3 = toNumber(selectedPerformance?.target_q3);
+  const targetQ4 = toNumber(selectedPerformance?.target_q4);
+  const actualQ1 = toNumber(selectedPerformance?.actual_q1);
+  const actualQ2 = toNumber(selectedPerformance?.actual_q2);
+  const actualQ3 = toNumber(selectedPerformance?.actual_q3);
+  const actualQ4 = toNumber(selectedPerformance?.actual_q4);
+  const targetTotal =
+    toNumber(selectedPerformance?.target_total) ||
+    targetQ1 + targetQ2 + targetQ3 + targetQ4;
+  const actualTotal = actualQ1 + actualQ2 + actualQ3 + actualQ4;
+  const percentOfTarget = (actual: number, target: number) =>
+    target > 0 ? Math.round((actual / target) * 1000) / 10 : 0;
+  const physicalProgressFromPerformance = {
+    overall_percent: percentOfTarget(actualTotal, targetTotal),
+    quarters: [
+      { quarter: "Q1" as const, percent: percentOfTarget(actualQ1, targetQ1) },
+      { quarter: "Q2" as const, percent: percentOfTarget(actualQ2, targetQ2) },
+      { quarter: "Q3" as const, percent: percentOfTarget(actualQ3, targetQ3) },
+      { quarter: "Q4" as const, percent: percentOfTarget(actualQ4, targetQ4) },
+    ],
+  };
   const physicalProgressRows = Array.isArray(raw.physical_progress)
     ? raw.physical_progress
     : [];
@@ -515,7 +578,25 @@ function normalizeDetail(
   const allotted = toNumber(financeSummary?.total_allotted, toNumber(financials.allotted));
   const obligated = toNumber(financeSummary?.total_obligated, toNumber(financials.obligated));
   const disbursement = toNumber(financeSummary?.total_disbursed, toNumber(financials.disbursement));
-  const documentRows = Array.isArray(raw.documents) ? raw.documents : [];
+  const rawDocuments = documentResponse ?? raw.documents;
+  const documentRows = Array.isArray(rawDocuments)
+    ? rawDocuments
+    : Array.isArray(rawDocuments?.documents)
+      ? rawDocuments.documents
+      : [];
+  const documentTracking: ProjectDocumentResponse = {
+    project_id: asString(rawDocuments?.project_id ?? projectRaw.project_id),
+    dtn_no: rawDocuments?.dtn_no ? asString(rawDocuments.dtn_no) : projectRaw.dtn_no ? asString(projectRaw.dtn_no) : null,
+    valid: Boolean(rawDocuments?.valid),
+    folder_url: rawDocuments?.folder_url ? asString(rawDocuments.folder_url) : null,
+    documents: documentRows.map((doc: any) => ({
+      id: asString(doc.id ?? doc.document_id ?? doc.name),
+      name: asString(doc.name ?? doc.document_name, "Project document"),
+      view_url: doc.view_url ? asString(doc.view_url) : null,
+      download_url: doc.download_url ? asString(doc.download_url) : null,
+      created_at: doc.created_at ?? doc.uploaded_at ? asString(doc.created_at ?? doc.uploaded_at) : null,
+    })),
+  };
   const issues = normalizeProjectIssues(issueRows);
   const ledgerFundSources = Array.isArray(financeLedger?.fund_sources)
     ? financeLedger.fund_sources
@@ -532,6 +613,8 @@ function normalizeDetail(
   const normalizedLedger = {
     fund_sources: ledgerFundSources.map((row: any) => ({
       appr_fund_source_id: asString(row.appr_fund_source_id),
+      appropriation_id: asString(row.appropriation_id),
+      fund_source_id: asString(row.fund_source_id),
       fund_name: asString(row.fund_name, "Fund Source"),
       fund_category: asString(row.fund_category, "Fund"),
       expense_class: asString(row.expense_class, "N/A"),
@@ -639,6 +722,7 @@ function normalizeDetail(
     locational_clearance_status: Boolean(
       raw.locational_clearance?.is_clearanced ?? projectRaw.locational_clearance_status ?? false,
     ),
+    dtn_no: projectRaw.dtn_no ? asString(projectRaw.dtn_no) : documentTracking.dtn_no ?? null,
   };
 
   return {
@@ -694,24 +778,19 @@ function normalizeDetail(
       expense_lines: expenseLines,
     },
     finance_ledger: normalizedLedger,
-    physical_progress: {
-      overall_percent: Math.round(overallProgress * 10) / 10,
-      quarters: [
-        { quarter: "Q1", percent: Math.round(overallProgress * 0.35) },
-        { quarter: "Q2", percent: Math.round(overallProgress * 0.6) },
-        { quarter: "Q3", percent: Math.round(overallProgress * 0.85) },
-        { quarter: "Q4", percent: Math.round(overallProgress) },
-      ],
-    },
+    physical_progress: physicalProgressFromPerformance,
     phases,
     overall_progress_percent: Math.round(overallProgress * 10) / 10,
     issues,
     activity: buildProjectActivity(issues, timelineRows, documentRows, financeLedger),
     documents: documentRows.map((doc: any) => ({
-      document_id: doc.document_id ? asString(doc.document_id) : undefined,
+      document_id: doc.document_id ?? doc.id ? asString(doc.document_id ?? doc.id) : undefined,
       name: asString(doc.document_name ?? doc.name, "Project document"),
-      uploaded_at: asString(doc.uploaded_at, new Date().toISOString()),
+      uploaded_at: asString(doc.uploaded_at ?? doc.created_at, new Date().toISOString()),
+      view_url: doc.view_url ? asString(doc.view_url) : null,
+      download_url: doc.download_url ? asString(doc.download_url) : null,
     })),
+    document_tracking: documentTracking,
   };
 }
 
@@ -770,6 +849,31 @@ export async function updateProject(
   return requestJsonBody<BackendProjectRecord>(`/projects/${projectId}`, "PUT", payload);
 }
 
+export async function updateProjectDtn(projectId: string, dtnNo: string) {
+  return requestJsonBody<BackendProjectRecord>(`/projects/${projectId}/dtn`, "PUT", {
+    dtn_no: dtnNo,
+  });
+}
+
+export async function getProjectDocuments(projectId: string): Promise<ProjectDocumentResponse> {
+  const raw = await requestJson<BackendProjectRecord>(`/projects/${projectId}/documents`);
+  const documents = Array.isArray(raw.documents) ? raw.documents : [];
+
+  return {
+    project_id: asString(raw.project_id, projectId),
+    dtn_no: raw.dtn_no ? asString(raw.dtn_no) : null,
+    valid: Boolean(raw.valid),
+    folder_url: raw.folder_url ? asString(raw.folder_url) : null,
+    documents: documents.map((doc: any) => ({
+      id: asString(doc.id ?? doc.document_id ?? doc.name),
+      name: asString(doc.name ?? doc.document_name, "Project document"),
+      view_url: doc.view_url ? asString(doc.view_url) : null,
+      download_url: doc.download_url ? asString(doc.download_url) : null,
+      created_at: doc.created_at ?? doc.uploaded_at ? asString(doc.created_at ?? doc.uploaded_at) : null,
+    })),
+  };
+}
+
 export async function deleteProject(projectId: string) {
   return requestJsonBody<{ detail: string }>(`/projects/${projectId}`, "DELETE");
 }
@@ -779,15 +883,25 @@ export async function getProjectDetail(
   year?: number,
 ): Promise<ProjectDetailPayload> {
   try {
-    const [raw, projectRecord, phaseRows, financeSummary, financeLedger] = await Promise.all([
+    const [raw, projectRecord, issueRows, phaseRows, financeSummary, financeLedger, documentResponse] = await Promise.all([
       requestJson<BackendProjectRecord>(`/projects/${projectId}/full`, { year }).catch(() => undefined),
       requestJson<BackendProjectRecord>(`/projects/${projectId}`),
+      requestJson<unknown>(`/issues/project/${projectId}`).then(unwrapProjectIssues).catch(() => []),
       requestJson<BackendProjectRecord[]>("/phase-configs/").catch(() => []),
-      requestJson<BackendProjectRecord>(`/finance/projects/${projectId}/summary`).catch(() => undefined),
-      requestJson<BackendProjectRecord>(`/finance/projects/${projectId}/ledger`).catch(() => undefined),
+      year
+        ? requestJson<BackendProjectRecord>(`/finance/projects/${projectId}/summary`, {
+            fiscal_year: year,
+          }).catch(() => undefined)
+        : Promise.resolve(undefined),
+      year
+        ? requestJson<BackendProjectRecord>(`/finance/projects/${projectId}/ledger`, {
+            fiscal_year: year,
+          }).catch(() => undefined)
+        : Promise.resolve(undefined),
+      getProjectDocuments(projectId).catch(() => undefined),
     ]);
 
-    return normalizeDetail(raw ?? projectRecord, year, projectRecord, [], phaseRows, financeSummary, financeLedger);
+    return normalizeDetail(raw ?? projectRecord, year, projectRecord, issueRows, phaseRows, financeSummary, financeLedger, documentResponse);
   } catch {
     const raw = await requestJson<BackendProjectRecord>(`/projects/${projectId}`);
     return normalizeDetail(raw, year);
@@ -844,11 +958,5 @@ export async function updateProjectTimeline(
     `/projects/${encodeURIComponent(projectId)}/timeline/${encodeURIComponent(phaseName)}`,
     "PUT",
     payload,
-  );
-}
-
-export async function downloadProjectDocument(projectId: string, documentId: string) {
-  return apiBlobRequest(
-    `/projects/${encodeURIComponent(projectId)}/documents/${encodeURIComponent(documentId)}/download`,
   );
 }

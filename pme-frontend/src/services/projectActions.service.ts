@@ -121,7 +121,9 @@ export interface FundSourceOption {
 export interface AppropriationFundSourceOption {
   appr_fund_source_id: string;
   fund_source_id: string;
+  fund_name?: string;
   expense_class: string;
+  appropriated_amount: number;
   label: string;
   unreleased: number;
 }
@@ -246,6 +248,16 @@ export function createAppropriation(data: AppropriationPayload) {
   });
 }
 
+export function updateAppropriation(
+  appropriationId: string,
+  data: Partial<Pick<AppropriationPayload, "ao_number">>,
+) {
+  return apiRequest<Appropriation>(`/finance/appropriations/${encodeURIComponent(appropriationId)}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
 export function getAppropriations(projectAipId?: string) {
   return apiRequest<Appropriation[]>(
     withQuery("/finance/appropriations", { project_aip_id: projectAipId }),
@@ -257,6 +269,19 @@ export function createAppropriationFundSource(data: AppropriationFundSourcePaylo
     method: "POST",
     body: JSON.stringify(data),
   });
+}
+
+export function updateAppropriationFundSource(
+  apprFundSourceId: string,
+  data: Pick<AppropriationFundSourcePayload, "appropriated_amount">,
+) {
+  return apiRequest<AppropriationFundSource>(
+    `/finance/appropriation-fund-sources/${encodeURIComponent(apprFundSourceId)}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(data),
+    },
+  );
 }
 
 export function getAppropriationFundSources(appropriationId: string) {
@@ -302,9 +327,11 @@ export function getDisbursements(obligationId?: string) {
   );
 }
 
-export function getProjectFinancialSummary(projectId: string) {
+export function getProjectFinancialSummary(projectId: string, fiscalYear?: number) {
   return apiRequest<ProjectFinancialSummary>(
-    `/finance/projects/${encodeURIComponent(projectId)}/summary`,
+    withQuery(`/finance/projects/${encodeURIComponent(projectId)}/summary`, {
+      fiscal_year: fiscalYear,
+    }),
   );
 }
 

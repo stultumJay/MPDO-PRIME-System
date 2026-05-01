@@ -46,6 +46,13 @@ type ProjectSummaryResponse = {
   disbursed: number | string;
 }[];
 
+type BudgetUtilizationResponse = {
+  records: {
+    project_code: string;
+    appropriated: number | string;
+  }[];
+};
+
 export interface MapProjectMarker {
   id: string;
   code: string;
@@ -100,18 +107,31 @@ export async function getMapData(fiscalYear?: number): Promise<MapPayload> {
   const currentYear = new Date().getFullYear();
   const selectedYear = fiscalYear ?? (years.includes(currentYear) ? currentYear : years[0]) ?? currentYear;
 
-  const [locations, summaries] = await Promise.all([
+  const [locations, summaries, budgetReport] = await Promise.all([
     requestJson<MapLocationResponse>("/map/", { fiscal_year: selectedYear }),
     requestJson<ProjectSummaryResponse>("/reports/projects-summary", { fiscal_year: selectedYear }),
+    requestJson<BudgetUtilizationResponse>("/reports/budget-utilization", { fiscal_year: selectedYear }).catch(() => ({
+      records: [],
+    })),
   ]);
 
   const summaryByCode = new Map(summaries.map((summary) => [summary.project_code, summary]));
+  const appropriationByCode = new Map<string, number>();
+
+  for (const record of budgetReport.records) {
+    const key = String(record.project_code ?? "");
+    appropriationByCode.set(key, (appropriationByCode.get(key) ?? 0) + toNumber(record.appropriated));
+  }
+
   const markers = locations.map((location) => {
     const sector = normalizeSector(location.sector);
     const status = normalizeStatus(location.status);
     const lat = toNumber(location.lat);
     const lng = toNumber(location.lng);
-    const budget = toNumber(summaryByCode.get(location.project_code)?.proposed);
+    const summary = summaryByCode.get(location.project_code);
+    const budget =
+      appropriationByCode.get(location.project_code) ??
+      toNumber(summary?.allotted, toNumber(summary?.proposed));
 
     return {
       id: location.project_id,

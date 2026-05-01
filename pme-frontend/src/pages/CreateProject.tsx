@@ -36,12 +36,12 @@ function makeInitialForm(): WizardForm {
   };
 }
 
+function programsForSector(options: CreateProjectOptions | WizardOptions, sectorId: string) {
+  return options.programs.filter((program) => program.sector_id === sectorId);
+}
+
 function pickFirstProgram(options: CreateProjectOptions, sectorId: string) {
-  return (
-    options.programs.find((p) => p.sector_id === sectorId)?.id ??
-    options.programs[0]?.id ??
-    ""
-  );
+  return programsForSector(options, sectorId)[0]?.id ?? "";
 }
 
 export default function CreateProjectPage() {
@@ -73,6 +73,7 @@ export default function CreateProjectPage() {
   });
   const options = optionsQuery.data ?? null;
   const submitting = createProjectMutation.isPending;
+  const selectedSectorPrograms = options ? programsForSector(options, form.sector_id) : [];
 
   useEffect(() => {
     const res = optionsQuery.data;
@@ -127,6 +128,10 @@ export default function CreateProjectPage() {
         setError("Please select an implementing office.");
         return;
       }
+      if (selectedSectorPrograms.length === 0) {
+        setError("This sector has no program yet. Select a sector with an available program before continuing.");
+        return;
+      }
       if (!form.program_id) {
         setError("Please select a program.");
         return;
@@ -139,6 +144,30 @@ export default function CreateProjectPage() {
   const back = () => {
     setError(null);
     setStepIdx((current) => Math.max(0, current - 1));
+  };
+
+  const canOpenStep = (targetIndex: number) => {
+    if (targetIndex <= stepIdx) return true;
+    if (targetIndex >= 1 && !form.project_title.trim()) return false;
+    if (targetIndex >= 2) {
+      return Boolean(form.sector_id && form.office_id && form.program_id && selectedSectorPrograms.length > 0);
+    }
+    return true;
+  };
+
+  const goToStep = (targetIndex: number) => {
+    if (canOpenStep(targetIndex)) {
+      setError(null);
+      setStepIdx(targetIndex);
+      return;
+    }
+
+    if (targetIndex >= 2 && selectedSectorPrograms.length === 0) {
+      setError("This sector has no program yet. Select a sector with an available program before continuing.");
+      return;
+    }
+
+    setError("Complete the current required fields before moving forward.");
   };
 
   const handleSubmit = async () => {
@@ -253,14 +282,15 @@ export default function CreateProjectPage() {
                 <button
                   key={step.key}
                   type="button"
-                  onClick={() => setStepIdx(index)}
+                  onClick={() => goToStep(index)}
+                  disabled={!canOpenStep(index)}
                   className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-bold transition ${
                     active
                       ? "border-primary bg-primary/10 text-primary"
                       : done
                       ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700"
                       : "border-border bg-card text-muted-foreground hover:border-primary/40 hover:text-foreground"
-                  }`}
+                  } disabled:cursor-not-allowed disabled:opacity-50`}
                 >
                   <span
                     className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] ${
@@ -322,7 +352,8 @@ export default function CreateProjectPage() {
               <button
                 type="button"
                 onClick={next}
-                className="rounded-xl bg-primary px-6 py-2.5 text-sm font-semibold text-primary-foreground transition hover:opacity-90"
+                disabled={submitting || (stepIdx === 1 && selectedSectorPrograms.length === 0)}
+                className="rounded-xl bg-primary px-6 py-2.5 text-sm font-semibold text-primary-foreground transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Next
               </button>

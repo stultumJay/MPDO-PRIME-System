@@ -5,6 +5,7 @@ import {
   getProjectDetail as getProjectDetailRequest,
   updateProjectTimeline,
   updateProject,
+  updateProjectDtn,
   type ProjectDetailPayload,
 } from "@/services/project.service";
 import {
@@ -38,7 +39,8 @@ export const projectKeys = {
   detail: (projectId: string, year?: number) => ["project", projectId, "detail", year] as const,
   aip: (projectId: string, year?: number) => ["project", projectId, "aip", year] as const,
   issues: (projectId: string) => ["project", projectId, "issues"] as const,
-  financialSummary: (projectId: string) => ["project", projectId, "financial-summary"] as const,
+  financialSummary: (projectId: string, year?: number) =>
+    ["project", projectId, "financial-summary", year] as const,
   financeModalData: (projectId: string, projectAipId?: string) =>
     ["project", projectId, "finance-modal-data", projectAipId] as const,
 };
@@ -143,13 +145,15 @@ async function getProjectFinanceModalData(projectId: string, projectAipId?: stri
     const unreleased = Math.max(0, appropriatedAmount - releasedTotal);
     unreleasedTotal += unreleased;
 
-    appropriationFundSources.push({
-      appr_fund_source_id: apprFundSourceId,
-      fund_source_id: String(apprRow.fund_source_id),
-      expense_class: String(apprRow.expense_class),
-      label: `${fundSourceNameMap.get(String(apprRow.fund_source_id)) ?? "Fund Source"} - ${apprRow.expense_class} ${formatPHPFull(appropriatedAmount)}`,
-      unreleased,
-    });
+      appropriationFundSources.push({
+        appr_fund_source_id: apprFundSourceId,
+        fund_source_id: String(apprRow.fund_source_id),
+        fund_name: fundSourceNameMap.get(String(apprRow.fund_source_id)) ?? "Fund Source",
+        expense_class: String(apprRow.expense_class),
+        appropriated_amount: appropriatedAmount,
+        label: `${fundSourceNameMap.get(String(apprRow.fund_source_id)) ?? "Fund Source"} - ${apprRow.expense_class} ${formatPHPFull(appropriatedAmount)}`,
+        unreleased,
+      });
   }
 
   return {
@@ -162,6 +166,72 @@ async function getProjectFinanceModalData(projectId: string, projectAipId?: stri
     allotments,
     obligations,
     unreleasedTotal,
+  };
+}
+
+async function getProjectFinanceModalDataFromLedger(
+  projectId: string,
+  projectAipId?: string,
+  detail?: ProjectDetailPayload,
+) {
+  const fundSourceRows = await getFundSources();
+  const fundSources = fundSourceRows.map((fs) => ({
+    fund_source_id: String(fs.fund_source_id),
+    fund_name: String(fs.fund_name ?? "Fund Source"),
+  }));
+
+  if (!projectAipId) {
+    return { ...emptyFinanceModalData(), fundSources };
+  }
+
+  const ledger = detail?.finance_ledger;
+  if (!ledger?.fund_sources?.length) {
+    return getProjectFinanceModalData(projectId, projectAipId);
+  }
+
+  const appropriations = await getAppropriations(projectAipId);
+  const firstSource = ledger.fund_sources[0];
+  const appropriation =
+    appropriations.find((row) => String(row.appropriation_id) === firstSource.appropriation_id) ??
+    appropriations[0];
+
+  const appropriationFundSources = ledger.fund_sources.map((source) => ({
+    appr_fund_source_id: source.appr_fund_source_id,
+    fund_source_id: source.fund_source_id,
+    fund_name: source.fund_name || "Fund Source",
+    expense_class: source.expense_class,
+    appropriated_amount: Math.max(0, source.appropriated_amount),
+    label: `${source.fund_name || "Fund Source"} - ${source.expense_class} ${formatPHPFull(source.appropriated_amount)}`,
+    unreleased: Math.max(0, source.available_for_allotment),
+  }));
+
+  const allotments = ledger.allotments.map((allotment) => ({
+    allotment_id: allotment.allotment_id,
+    label: `${allotment.aro_number || "ARO"} - ${formatPHPFull(allotment.amount_released)}`,
+    free_balance: Math.max(0, allotment.free_balance),
+  }));
+
+  const obligations = ledger.obligations.map((obligation) => ({
+    obligation_id: obligation.obligation_id,
+    label:
+      obligation.reference_document && obligation.payee
+        ? `${obligation.reference_document} - ${obligation.payee}`
+        : obligation.payee || obligation.reference_document || "Obligation",
+    unpaid: Math.max(0, obligation.unpaid_balance),
+  }));
+
+  return {
+    fundSources,
+    appropriation: appropriation
+      ? {
+          appropriation_id: String(appropriation.appropriation_id ?? ""),
+          ao_number: String(appropriation.ao_number ?? ""),
+        }
+      : undefined,
+    appropriationFundSources,
+    allotments,
+    obligations,
+    unreleasedTotal: appropriationFundSources.reduce((sum, row) => sum + row.unreleased, 0),
   };
 }
 
@@ -182,10 +252,10 @@ export function useProjectAip(projectId: string, year?: number) {
   });
 }
 
-export function useProjectFinancialSummary(projectId: string) {
+export function useProjectFinancialSummary(projectId: string, year?: number) {
   return useQuery<ProjectFinancialSummary>({
-    queryKey: projectKeys.financialSummary(projectId),
-    queryFn: () => getProjectFinancialSummary(projectId),
+    queryKey: projectKeys.financialSummary(projectId, year),
+    queryFn: () => getProjectFinancialSummary(projectId, year),
     enabled: Boolean(projectId),
     staleTime: 60_000,
   });
@@ -204,10 +274,11 @@ export function useProjectFinanceModalData(
   projectId: string,
   projectAipId?: string,
   enabled = true,
+  detail?: ProjectDetailPayload,
 ) {
   return useQuery({
     queryKey: projectKeys.financeModalData(projectId, projectAipId),
-    queryFn: () => getProjectFinanceModalData(projectId, projectAipId),
+    queryFn: () => getProjectFinanceModalDataFromLedger(projectId, projectAipId, detail),
     enabled: Boolean(projectId) && enabled,
     initialData: emptyFinanceModalData,
     staleTime: 60_000,
@@ -265,6 +336,10 @@ export function useProjectMutations(projectId: string, year?: number) {
     }),
     updateProject: useMutation({
       mutationFn: (payload: Parameters<typeof updateProject>[1]) => updateProject(projectId, payload),
+      onSuccess: invalidateProject,
+    }),
+    updateDtn: useMutation({
+      mutationFn: (dtnNo: string) => updateProjectDtn(projectId, dtnNo),
       onSuccess: invalidateProject,
     }),
     updateTimeline: useMutation({

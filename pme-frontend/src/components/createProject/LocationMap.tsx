@@ -53,7 +53,11 @@ export function LocationMap({ position, onPositionChange, searchQuery }: Locatio
         attribution: "© OpenStreetMap contributors",
       }).addTo(map);
 
-      const marker = L.marker([initial.lat, initial.lng], { draggable: true }).addTo(map);
+      const marker = L.marker([initial.lat, initial.lng], {
+        draggable: true,
+        title: "Selected project location",
+        alt: "Selected project location",
+      }).addTo(map);
       marker.on("dragend", () => {
         const pos = marker.getLatLng();
         onPositionChange({ lat: pos.lat, lng: pos.lng });
