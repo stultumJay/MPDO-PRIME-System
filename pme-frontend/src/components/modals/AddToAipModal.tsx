@@ -53,14 +53,19 @@ export default function AddToAipModal({
   );
   const yearNumber = Number(fiscalYear);
   const duplicateYear = existingYears.includes(yearNumber);
-  const targetNumber = Number(targetTotal);
+  const toInteger = (value: string) => {
+    const parsed = Number(value);
+    return Number.isInteger(parsed) ? parsed : NaN;
+  };
+  const targetNumber = toInteger(targetTotal);
+  const targetIsValid = Number.isInteger(targetNumber) && targetNumber > 0;
   const canSubmit =
     !submitting &&
     yearNumber >= 2000 &&
     !duplicateYear &&
     majorFinalOutput.trim() &&
     indicator.trim() &&
-    targetNumber > 0 &&
+    targetIsValid &&
     totalBudget > 0;
 
   return (
@@ -68,6 +73,7 @@ export default function AddToAipModal({
       open={open}
       onClose={() => onOpenChange(false)}
       size="max-w-4xl"
+      bodyClassName="overflow-y-visible"
       title="Add to AIP"
       subtitle="Move this planned project into the Annual Investment Program"
       footer={
@@ -103,14 +109,14 @@ export default function AddToAipModal({
         </>
       }
     >
-      <div className="space-y-6">
+      <div className="space-y-4">
         {error ? (
           <div className="rounded-lg bg-destructive/10 px-4 py-3 text-xs font-medium text-destructive">
             {error}
           </div>
         ) : null}
 
-        <section className="grid gap-4 md:grid-cols-3">
+        <section className="grid gap-3 md:grid-cols-3">
           <div>
             <FieldLabel>Project Code</FieldLabel>
             <input className={readonlyInputCls} value={project.project.project_code} readOnly />
@@ -136,31 +142,49 @@ export default function AddToAipModal({
           </div>
         </section>
 
-        <section className="grid gap-4 md:grid-cols-3">
+        <section className="grid gap-3 md:grid-cols-3">
           <div>
             <FieldLabel required>Major Final Output</FieldLabel>
-            <textarea className={`${inputCls} h-24 resize-none`} value={majorFinalOutput} onChange={(event) => setMajorFinalOutput(event.target.value)} />
+            <textarea className={`${inputCls} h-20 resize-none`} value={majorFinalOutput} onChange={(event) => setMajorFinalOutput(event.target.value)} />
           </div>
           <div>
             <FieldLabel required>Performance Indicator</FieldLabel>
-            <textarea className={`${inputCls} h-24 resize-none`} value={indicator} onChange={(event) => setIndicator(event.target.value)} />
+            <textarea className={`${inputCls} h-20 resize-none`} value={indicator} onChange={(event) => setIndicator(event.target.value)} />
           </div>
           <div>
             <FieldLabel required>Target Total</FieldLabel>
-            <input className={inputCls} type="number" min={1} value={targetTotal} onChange={(event) => setTargetTotal(event.target.value)} />
+            <input className={inputCls} type="number" min={1} step={1} value={targetTotal} onChange={(event) => setTargetTotal(event.target.value)} />
+            <p className="mt-1 text-[10px] font-semibold text-muted-foreground">
+              Integer output target, not a percentage.
+            </p>
           </div>
         </section>
 
-        <section className="grid gap-4 md:grid-cols-4">
-          <BudgetInput label="PS" value={ps} onChange={setPs} />
-          <BudgetInput label="MOOE" value={mooe} onChange={setMooe} />
-          <BudgetInput label="FE" value={fe} onChange={setFe} />
-          <BudgetInput label="CO" value={co} onChange={setCo} />
+        <section className="rounded-xl border border-border bg-card p-3">
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <h3 className="text-[11px] font-black uppercase tracking-widest text-foreground">
+                Proposed Budget Categories
+              </h3>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Use the standard AIP budget classifications.
+              </p>
+            </div>
+            <span className="rounded bg-foreground px-3 py-1 text-[10px] font-black uppercase text-background">
+              {formatPHPFull(totalBudget)}
+            </span>
+          </div>
+          <div className="grid gap-3 lg:grid-cols-4">
+            <BudgetInput label="Personal Services" value={ps} onChange={setPs} />
+            <BudgetInput label="Maintenance and Other Operating Expenses (MOOE)" value={mooe} onChange={setMooe} />
+            <BudgetInput label="Financial Expenses" value={fe} onChange={setFe} />
+            <BudgetInput label="Capital Outlay" value={co} onChange={setCo} />
+          </div>
         </section>
 
         <div>
           <FieldLabel>Remarks</FieldLabel>
-          <textarea className={`${inputCls} h-20 resize-none`} value={remarks} onChange={(event) => setRemarks(event.target.value)} />
+          <textarea className={`${inputCls} h-16 resize-none`} value={remarks} onChange={(event) => setRemarks(event.target.value)} />
         </div>
       </div>
     </ModalShell>
@@ -183,6 +207,7 @@ function BudgetInput({
         className={`${inputCls} text-right font-mono`}
         type="number"
         min={0}
+        step="0.01"
         value={value}
         onChange={(event) => onChange(event.target.value)}
       />
