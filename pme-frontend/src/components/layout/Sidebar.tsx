@@ -1,7 +1,7 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useSidebar } from "./SidebarContext";
-import { logout } from "@/services/tokenService";
+import { getStoredAccessToken, logout } from "@/services/tokenService";
 import { AppIcon } from "@/components/ui/AppIcon";
 import { getMyProfile } from "@/services/user.service";
 
@@ -64,10 +64,12 @@ export function Sidebar() {
   const { collapsed, toggle } = useSidebar();
   const widthClass = collapsed ? "w-16" : "w-64";
   const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const accessToken = getStoredAccessToken();
   const profileQuery = useQuery({
-    queryKey: ["auth", "me"],
+    queryKey: ["auth", "me", accessToken],
     queryFn: getMyProfile,
     staleTime: 300_000,
+    enabled: Boolean(accessToken),
   });
   const isAdmin = profileQuery.data?.role_name === "ADMIN";
   const visibleSections = SECTIONS.map((section) =>
@@ -162,28 +164,39 @@ function NavRow({
   collapsed: boolean;
   isActive: boolean;
 }) {
+  const rowClass = `
+    mb-0.5 flex items-center rounded-md py-1.5 text-[14px] transition
+    ${collapsed ? "justify-center px-0" : "gap-3 px-3"}
+    ${
+      item.disabled
+        ? "cursor-not-allowed text-[#6f7d95] opacity-60 hover:bg-transparent hover:text-[#6f7d95]"
+        : isActive
+        ? "border-r-2 border-[#27d2c2] bg-[#103844] text-[#9ff7ec] shadow-[inset_0_0_0_1px_rgba(39,210,194,0.08)]"
+        : "text-[#e4ecf7] hover:bg-[#1b2a45] hover:text-[#ffffff]"
+    }
+  `;
+
+  if (item.disabled) {
+    return (
+      <button
+        type="button"
+        aria-disabled="true"
+        onClick={(event) => event.preventDefault()}
+        title={collapsed ? item.label : `${item.label} requires administrator access`}
+        className={`w-full ${rowClass}`}
+      >
+        <AppIcon name={item.icon} className="h-[19px] w-[19px]" />
+        {!collapsed && <span className="truncate font-medium">{item.label}</span>}
+      </button>
+    );
+  }
+
   return (
     <Link
       to={item.to}
-      onClick={(event) => {
-        if (item.disabled) {
-          event.preventDefault();
-          return;
-        }
-        item.onClick?.();
-      }}
+      onClick={() => item.onClick?.()}
       title={collapsed ? item.label : undefined}
-      className={`
-        mb-0.5 flex items-center rounded-md py-1.5 text-[14px] transition
-        ${collapsed ? "justify-center px-0" : "gap-3 px-3"}
-        ${
-          item.disabled
-            ? "cursor-not-allowed text-[#6f7d95] opacity-60 hover:bg-transparent hover:text-[#6f7d95]"
-            : isActive
-            ? "border-r-2 border-[#27d2c2] bg-[#103844] text-[#9ff7ec] shadow-[inset_0_0_0_1px_rgba(39,210,194,0.08)]"
-            : "text-[#e4ecf7] hover:bg-[#1b2a45] hover:text-[#ffffff]"
-        }
-      `}
+      className={rowClass}
     >
       <AppIcon name={item.icon} className="h-[19px] w-[19px]" />
 
