@@ -16,7 +16,9 @@ class UserAccount(Base):
     email = Column(String(150))
 
     role_id = Column(UUID(as_uuid=True), ForeignKey("role.role_id"))
+    office_id = Column(UUID(as_uuid=True), ForeignKey("office.office_id"), nullable=True)
 
     is_active = Column(Boolean, default=True)
 
     role = relationship("Role", back_populates="users")
+    office = relationship("Office")
