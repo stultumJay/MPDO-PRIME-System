@@ -23,6 +23,10 @@ export function getAccessToken() {
   return token;
 }
 
+export function getStoredAccessToken() {
+  return readStoredValue("access_token");
+}
+
 export function hasActiveSession() {
   return Boolean(readStoredValue("access_token"));
 }
