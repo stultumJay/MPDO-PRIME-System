@@ -10,6 +10,7 @@ import {
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { getMyProfile } from "@/services/user.service";
+import { getStoredAccessToken } from "@/services/tokenService";
 
 const LandingPage = lazy(() => import("./pages/LandingPage"));
 const Overview = lazy(() => import("./pages/Overview"));
@@ -60,6 +61,27 @@ function lazyPage(Page: ReturnType<typeof lazy>) {
   };
 }
 
+function adminPage(Page: ReturnType<typeof lazy>) {
+  return function AdminPage() {
+    const accessToken = getStoredAccessToken();
+    const profileQuery = useQuery({
+      queryKey: ["auth", "me", accessToken],
+      queryFn: getMyProfile,
+      staleTime: 300_000,
+      enabled: Boolean(accessToken),
+    });
+
+    if (profileQuery.isLoading) return <RoutePending />;
+    if (profileQuery.data?.role_name !== "ADMIN") return <Navigate to="/overview" replace />;
+
+    return (
+      <Suspense fallback={<RoutePending />}>
+        <Page />
+      </Suspense>
+    );
+  };
+}
+
 function PublicOnlyLayout() {
   const { isAuthenticated, isLoading } = useAuth();
   if (isLoading) return <RoutePending />;
@@ -69,17 +91,6 @@ function PublicOnlyLayout() {
 function ProtectedLayout() {
   const { isAuthenticated } = useAuth();
   return isAuthenticated ? <Outlet /> : <Navigate to="/" replace />;
-}
-
-function AdminOnlyLayout() {
-  const profileQuery = useQuery({
-    queryKey: ["auth", "me"],
-    queryFn: getMyProfile,
-    staleTime: 300_000,
-  });
-
-  if (profileQuery.isLoading) return <RoutePending />;
-  return profileQuery.data?.role_name === "ADMIN" ? <Outlet /> : <Navigate to="/overview" replace />;
 }
 
 function NotFoundRedirect() {
@@ -183,26 +194,14 @@ const auditRoute = createRoute({
 
 const settingsRoute = createRoute({
   getParentRoute: () => protectedRoute,
-  id: "admin-settings",
-  component: AdminOnlyLayout,
+  path: "/settings",
+  component: adminPage(Settings),
 });
 
 const accountsRoute = createRoute({
   getParentRoute: () => protectedRoute,
-  id: "admin-accounts",
-  component: AdminOnlyLayout,
-});
-
-const settingsIndexRoute = createRoute({
-  getParentRoute: () => settingsRoute,
-  path: "/settings",
-  component: lazyPage(Settings),
-});
-
-const accountsIndexRoute = createRoute({
-  getParentRoute: () => accountsRoute,
   path: "/accounts",
-  component: lazyPage(Accounts),
+  component: adminPage(Accounts),
 });
 
 const profileRoute = createRoute({
@@ -226,8 +225,8 @@ const routeTree = rootRoute.addChildren([
     mapRoute,
     issuesRoute,
     auditRoute,
-    settingsRoute.addChildren([settingsIndexRoute]),
-    accountsRoute.addChildren([accountsIndexRoute]),
+    settingsRoute,
+    accountsRoute,
     profileRoute,
   ]),
 ]);
