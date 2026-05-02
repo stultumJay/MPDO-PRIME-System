@@ -1,78 +1,69 @@
+import uuid
 from app.db.session import SessionLocal
 from app.models.role import Role
 from app.models.user import UserAccount
 from app.core.security import hash_password
-import uuid
+from app.scripts.utils import get_or_create
 
-db = SessionLocal()
 
-try:
-    # =========================
-    # 1. CREATE ROLES
-    # =========================
+def run():
+    db = SessionLocal()
 
-    admin_role = db.query(Role).filter(Role.role_name == "ADMIN").first()
-    if not admin_role:
-        admin_role = Role(
-            role_id=uuid.uuid4(),
-            role_name="ADMIN"
+    try:
+        # Roles
+        admin_role, _ = get_or_create(
+            db,
+            Role,
+            {"role_name": "ADMIN"},
+            {"role_id": uuid.uuid4()}
         )
-        db.add(admin_role)
 
-    staff_role = db.query(Role).filter(Role.role_name == "STAFF").first()
-    if not staff_role:
-        staff_role = Role(
-            role_id=uuid.uuid4(),
-            role_name="STAFF"
+        staff_role, _ = get_or_create(
+            db,
+            Role,
+            {"role_name": "STAFF"},
+            {"role_id": uuid.uuid4()}
         )
-        db.add(staff_role)
 
-    db.commit()
+        db.commit()
 
-    db.refresh(admin_role)
-    db.refresh(staff_role)
-
-    # =========================
-    # 2. CREATE ADMIN USER
-    # =========================
-
-    admin_user = db.query(UserAccount).filter(UserAccount.username == "admin").first()
-    if not admin_user:
-        admin_user = UserAccount(
-            full_name="System Admin",
-            email="admin@example.com",
-            username="admin",
-            password_hash=hash_password("admin123"),
-            role_id=admin_role.role_id,
-            is_active=True
+        # Users
+        get_or_create(
+            db,
+            UserAccount,
+            {"username": "admin"},
+            {
+                "full_name": "System Admin",
+                "email": "admin@example.com",
+                "password_hash": hash_password("admin123"),
+                "role_id": admin_role.role_id,
+                "is_active": True
+            }
         )
-        db.add(admin_user)
-        print("✅ Admin user created")
 
-    # =========================
-    # 3. CREATE STAFF USER
-    # =========================
-
-    staff_user = db.query(UserAccount).filter(UserAccount.username == "staff").first()
-    if not staff_user:
-        staff_user = UserAccount(
-            full_name="Staff User",
-            email="staff@example.com",
-            username="gerfel",
-            password_hash=hash_password("staff123"),
-            role_id=staff_role.role_id,
-            is_active=True
+        get_or_create(
+            db,
+            UserAccount,
+            {"username": "gerfel"},
+            {
+                "full_name": "Staff User",
+                "email": "staff@example.com",
+                "password_hash": hash_password("staff123"),
+                "role_id": staff_role.role_id,
+                "is_active": True
+            }
         )
-        db.add(staff_user)
-        print("✅ Staff user created")
 
-    db.commit()
+        db.commit()
+        print("Users + roles seeded safely")
 
-    print("🎉 Seeding complete: ADMIN + STAFF + roles ready")
+    except Exception as e:
+        db.rollback()
+        print("ERROR:", e)
 
-except Exception as e:
-    db.rollback()
-    print("❌ Seeding error:", e)
+    finally:
+        db.close()
 
-finally:
-    db.close()
+
+if __name__ == "__main__":
+    run()

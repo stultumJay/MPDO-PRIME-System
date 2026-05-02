@@ -1,82 +1,41 @@
 import uuid
 from app.db.session import SessionLocal
 from app.models import FundSource
+from app.scripts.utils import get_or_create
 
 
-def seed_fund_sources():
+def run():
     db = SessionLocal()
 
     try:
-        existing = db.query(FundSource).first()
-        if existing:
-            print("Fund sources already exist. Skipping.")
-            return
-
         sources = [
-            {
-                "fund_category": "National",
-                "fund_name": "NATIONAL GOVERNMENT FUND",
-                "description": "National government funding"
-            },
-            {
-                "fund_category": "Donor",
-                "fund_name": "DONOR FUND",
-                "description": "Externally funded projects"
-            },
-            {
-                "fund_category": "PPP",
-                "fund_name": "PUBLIC-PRIVATE PARTNERSHIP FUND",
-                "description": "Public-Private Partnership"
-            },
-            {
-                "fund_category": "Regional",
-                "fund_name": "REGIONAL FUND",
-                "description": "Regional funding"
-            },
-
-            {
-                "fund_category": "LGU",
-                "fund_name": "GENERAL FUND 20%",
-                "description": "20% Development Fund"
-            },
-            {
-                "fund_category": "LGU",
-                "fund_name": "EXTERNAL SOURCE",
-                "description": "Externally sourced LGU funds"
-            },
-            {
-                "fund_category": "LGU",
-                "fund_name": "5% LDRRMF",
-                "description": "Disaster Risk Reduction Fund"
-            },
-            {
-                "fund_category": "LGU",
-                "fund_name": "EXCISE TAX",
-                "description": "Excise tax allocation"
-            },
-            {
-                "fund_category": "LGU",
-                "fund_name": "LEE Fund",
-                "description": "Local Economic Enterprise fund"
-            },
-            {
-                "fund_category": "LGU",
-                "fund_name": "MDF",
-                "description": "Municipal Development Fund"
-            },
+            ("National", "NATIONAL GOVERNMENT FUND", "National government funding"),
+            ("Donor", "DONOR FUND", "Externally funded projects"),
+            ("PPP", "PUBLIC-PRIVATE PARTNERSHIP FUND", "Public-Private Partnership"),
+            ("Regional", "REGIONAL FUND", "Regional funding"),
+            ("LGU", "GENERAL FUND 20%", "20% Development Fund"),
+            ("LGU", "EXTERNAL SOURCE", "Externally sourced LGU funds"),
+            ("LGU", "5% LDRRMF", "Disaster Risk Reduction Fund"),
+            ("LGU", "EXCISE TAX", "Excise tax allocation"),
+            ("LGU", "LEE Fund", "Local Economic Enterprise fund"),
+            ("LGU", "MDF", "Municipal Development Fund"),
         ]
 
-        for s in sources:
-            db.add(FundSource(
-                fund_source_id=uuid.uuid4(),
-                fund_category=s["fund_category"],
-                fund_name=s["fund_name"],
-                description=s["description"],
-                is_active=True
-            ))
+        for category, name, desc in sources:
+            get_or_create(
+                db,
+                FundSource,
+                filters={"fund_name": name},
+                defaults={
+                    "fund_source_id": uuid.uuid4(),
+                    "fund_category": category,
+                    "description": desc,
+                    "is_active": True
+                }
+            )
 
         db.commit()
-        print("Fund sources seeded")
+        print("Fund sources seeded safely")
 
     except Exception as e:
         db.rollback()
@@ -87,4 +46,4 @@ def seed_fund_sources():
 
 
 if __name__ == "__main__":
-    seed_fund_sources()
+    run()
