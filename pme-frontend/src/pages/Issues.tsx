@@ -41,6 +41,7 @@ interface RiskItem {
 const severityFilters: Severity[] = ["Critical", "High", "Medium", "Low"];
 const PAGE_SIZE = 7;
 const ALL_SECTORS = "All Sectors";
+const SLA_DAYS = 30;
 const severityRank: Record<Severity, number> = {
   Critical: 0,
   High: 1,
@@ -109,6 +110,14 @@ function downloadCsv(filename: string, rows: Array<Array<string | number>>) {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+}
+
+function daysBetween(start?: string | null, end?: string | null) {
+  if (!start || !end) return null;
+  const startDate = new Date(`${start}T00:00:00`);
+  const endDate = new Date(`${end}T00:00:00`);
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return null;
+  return Math.max(0, Math.ceil((endDate.getTime() - startDate.getTime()) / 86_400_000));
 }
 
 function toRiskItem(
@@ -245,8 +254,14 @@ export default function Issues() {
             ? "bg-primary"
             : "bg-slate-400";
 
-    return { label: severity, value: `${percent.toFixed(0)}%`, color };
+    return { label: severity, count, percent, color };
   });
+  const severitySlices = severityDistribution.reduce<
+    Array<(typeof severityDistribution)[number] & { offset: number }>
+  >((items, item) => {
+    const offset = items.reduce((sum, slice) => sum + slice.percent, 0);
+    return [...items, { ...item, offset }];
+  }, []);
 
   const sectorBreakdown = Array.from(new Set(riskItems.map((risk) => risk.sector))).map(
     (sector) => {
@@ -258,6 +273,20 @@ export default function Issues() {
       };
     },
   );
+  const resolvedRisks = riskItems.filter((risk) => risk.status === "Resolved");
+  const resolvedDurations = resolvedRisks
+    .map((risk) => daysBetween(risk.sortDate, risk.resolvedDate))
+    .filter((days): days is number => days !== null);
+  const onTimeResolved = resolvedRisks.filter((risk) => {
+    const days = daysBetween(risk.sortDate, risk.resolvedDate);
+    return days !== null && days <= SLA_DAYS;
+  }).length;
+  const resolutionEfficiency = resolvedRisks.length
+    ? (onTimeResolved / resolvedRisks.length) * 100
+    : 0;
+  const averageResolutionDays = resolvedDurations.length
+    ? resolvedDurations.reduce((sum, days) => sum + days, 0) / resolvedDurations.length
+    : 0;
 
   return (
     <AppShell
@@ -468,35 +497,27 @@ export default function Issues() {
                             stroke="#f1f5f9"
                             strokeWidth="4"
                           />
-                          <circle
-                            cx="18"
-                            cy="18"
-                            fill="transparent"
-                            r="15.9"
-                            stroke="#ba1a1a"
-                            strokeDasharray={`${severityDistribution[0]?.value ?? "0"} 100`}
-                            strokeWidth="4"
-                          />
-                          <circle
-                            cx="18"
-                            cy="18"
-                            fill="transparent"
-                            r="15.9"
-                            stroke="#f97316"
-                            strokeDasharray="35 100"
-                            strokeDashoffset="-25"
-                            strokeWidth="4"
-                          />
-                          <circle
-                            cx="18"
-                            cy="18"
-                            fill="transparent"
-                            r="15.9"
-                            stroke="#14b8a6"
-                            strokeDasharray="40 100"
-                            strokeDashoffset="-60"
-                            strokeWidth="4"
-                          />
+                          {severitySlices.map((item) => (
+                            <circle
+                              key={item.label}
+                              cx="18"
+                              cy="18"
+                              fill="transparent"
+                              r="15.9"
+                              stroke={
+                                item.label === "Critical"
+                                  ? "#ba1a1a"
+                                  : item.label === "High"
+                                    ? "#f97316"
+                                    : item.label === "Medium"
+                                      ? "#14b8a6"
+                                      : "#94a3b8"
+                              }
+                              strokeDasharray={`${item.percent} ${100 - item.percent}`}
+                              strokeDashoffset={`${-item.offset}`}
+                              strokeWidth="4"
+                            />
+                          ))}
                         </svg>
                         <div className="absolute inset-0 flex flex-col items-center justify-center">
                           <span className="text-xl font-black text-slate-950">
@@ -521,7 +542,7 @@ export default function Issues() {
                               </span>
                             </div>
                             <span className="text-[10px] font-semibold text-muted-foreground">
-                              {item.value}
+                              {item.count} ({item.percent.toFixed(0)}%)
                             </span>
                           </div>
                         ))}
@@ -560,11 +581,14 @@ export default function Issues() {
                     Resolution Efficiency
                   </p>
                   <div className="flex items-end gap-3">
-                    <span className="text-3xl font-black">84%</span>
+                    <span className="text-3xl font-black">{resolutionEfficiency.toFixed(0)}%</span>
                     <p className="mb-1 text-[10px] leading-tight text-slate-400">
-                      Average risks resolved within established SLA this month.
+                      {onTimeResolved} of {resolvedRisks.length} resolved issues closed within {SLA_DAYS} days.
                     </p>
                   </div>
+                  <p className="mt-2 text-[10px] font-semibold text-slate-400">
+                    Avg. closed issue resolution time: {averageResolutionDays.toFixed(1)} days.
+                  </p>
                   <div className="mt-3 border-t border-slate-800 pt-3">
                     <button
                       className="w-full rounded-lg bg-slate-800 py-2 text-[9px] font-black uppercase tracking-widest transition hover:bg-slate-700"
