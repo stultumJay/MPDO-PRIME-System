@@ -16,6 +16,7 @@ import {
   type ResolveIssuePayload,
 } from "@/services/issues.service";
 import { getAipByProject } from "@/services/aip.service";
+import { getMyProfile } from "@/services/user.service";
 import {
   createAipEntry,
   getAllotments,
@@ -285,17 +286,45 @@ export function useProjectFinanceModalData(
   });
 }
 
+function getStoredUserName() {
+  try {
+    const raw = localStorage.getItem("user");
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed?.full_name ?? parsed?.fullName ?? parsed?.name ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function decodeJwtUserName() {
+  try {
+    const token = localStorage.getItem("access_token");
+    const payload = token?.split(".")[1];
+    if (!payload) return null;
+    const decoded = JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/")));
+    return decoded?.full_name ?? decoded?.name ?? decoded?.username ?? decoded?.sub ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export function useCurrentUserName() {
+  const profileQuery = useQuery({
+    queryKey: ["users", "me", "name"],
+    queryFn: getMyProfile,
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+
   return useMemo(() => {
-    try {
-      const raw = localStorage.getItem("user");
-      if (!raw) return "Project Lead Admin";
-      const parsed = JSON.parse(raw);
-      return parsed?.full_name ?? parsed?.fullName ?? parsed?.name ?? "Project Lead Admin";
-    } catch {
-      return "Project Lead Admin";
-    }
-  }, []);
+    if (profileQuery.data?.full_name) return profileQuery.data.full_name;
+    const storedName = getStoredUserName();
+    if (storedName) return storedName;
+    const tokenName = decodeJwtUserName();
+    if (tokenName) return tokenName;
+    return "System";
+  }, [profileQuery.data?.full_name]);
 }
 
 export function useProjectMutations(projectId: string, year?: number) {

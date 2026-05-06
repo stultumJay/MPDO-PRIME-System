@@ -145,6 +145,24 @@ export interface CurrentAppropriationInfo {
   ao_number: string;
 }
 
+function canonicalFundSourceName(value: unknown) {
+  const label = String(value ?? "").trim().replace(/\s+/g, " ");
+  const key = label.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+  if (key.includes("national")) return "National Government Fund";
+  if (key.includes("donor")) return "Donor Fund";
+  if (key.includes("publicprivate") || key.includes("ppp")) return "Public-Private Partnership Fund";
+  if (key.includes("regional")) return "Regional Fund";
+  if (key.includes("20") || key.includes("generalfund")) return "20% General Fund (LGU)";
+  if (key.includes("external")) return "External Source (LGU)";
+  if (key.includes("ldrrmf") || key.includes("5")) return "5% LDRRMF (LGU)";
+  if (key.includes("excise")) return "Excise Tax (LGU)";
+  if (key.includes("lee")) return "LEE Fund (LGU)";
+  if (key.includes("mdf") || key.includes("municipaldevelopment")) return "Municipal Development Fund (MDF)";
+
+  return label || "Fund Source";
+}
+
 export interface ProgressPayload {
   project_id: string;
   phase_id: string;
@@ -238,7 +256,12 @@ export interface AipEntry {
 }
 
 export function getFundSources() {
-  return apiRequest<FundSource[]>("/finance/fund-sources");
+  return apiRequest<FundSource[]>("/finance/fund-sources").then((rows) =>
+    rows.map((row) => ({
+      ...row,
+      fund_name: canonicalFundSourceName(row.fund_name),
+    })),
+  );
 }
 
 export function createAppropriation(data: AppropriationPayload) {

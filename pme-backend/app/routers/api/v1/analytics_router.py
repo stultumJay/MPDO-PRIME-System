@@ -1,3 +1,5 @@
+<<<<<<< Updated upstream
+=======
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
@@ -7,9 +9,12 @@ from app.models.user import UserAccount
 
 from app.services.analytics_service import (
     get_dashboard_metrics,
-    get_budget_utilization,
-    get_project_status_distribution,
-)
+    get_project_status_distribution
+    )
+
+from app.services.report_service import (
+    get_budget_utilization
+    )
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
 
@@ -47,3 +52,4 @@ def project_status(
     This route returns the project status data the caller asked for
     """
     return get_project_status_distribution(db, fiscal_year)
+>>>>>>> Stashed changes

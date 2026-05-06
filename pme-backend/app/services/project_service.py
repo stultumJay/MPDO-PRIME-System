@@ -12,6 +12,7 @@ from app.models.sector import Sector
 from app.models.office import Office
 from app.models.user import UserAccount
 from app.schemas.project import ProjectCreate, ProjectUpdate, ProjectOut as ProjectResponse
+from app.services.project_status_service import recompute_project_status
 from app.utils.aip_code import next_project_seq, format_project_code
 from app.utils.location_rules import validate_project_location
 
@@ -95,6 +96,9 @@ def get_projects(
         .limit(limit)
         .all()
     )
+    for project in projects:
+        recompute_project_status(db, project)
+    db.commit()
     return [ProjectResponse.model_validate(p) for p in projects]
 
 
@@ -109,6 +113,7 @@ def get_project_by_id(db: Session, project_id: UUID) -> Project:
     ).first()
     if not project:
         raise HTTPException(404, "Project not found.")
+    recompute_project_status(db, project, commit=True)
     return project
 
 
@@ -127,6 +132,12 @@ def find_projects(
     This filters the active projects using whichever search fields the caller actually sent
     It keeps stacking filters on one query so the caller can combine sector, office, year, status, text, and AIP membership
     """
+    if status:
+        active_projects = db.query(Project).filter(Project.is_active.is_(True)).all()
+        for project in active_projects:
+            recompute_project_status(db, project)
+        db.commit()
+
     query = db.query(Project).filter(Project.is_active.is_(True))
 
     # Each filter only runs when the caller provided that specific search value
@@ -163,6 +174,9 @@ def find_projects(
         .limit(limit)
         .all()
     )
+    for project in projects:
+        recompute_project_status(db, project)
+    db.commit()
     return [ProjectResponse.model_validate(p) for p in projects]
 
 
@@ -183,6 +197,9 @@ def update_project(
             raise HTTPException(404, "Sector not found.")
 
     next_values = data.model_dump(exclude_unset=True)
+    next_values.pop("status", None)
+    next_values.pop("actual_start_date", None)
+    next_values.pop("actual_end_date", None)
     validate_project_location(
         next_values.get("barangay", project.barangay),
         next_values.get("location_lat", project.location_lat),
@@ -193,6 +210,17 @@ def update_project(
     for field, value in next_values.items():
         setattr(project, field, value)
 
+    recompute_project_status(db, project)
+    db.commit()
+    return _load_response(db, project_id)
+
+
+def set_project_dtn(db: Session, project_id: UUID, dtn_no: str) -> ProjectResponse:
+    """
+    Saves the document tracking number used for external document lookup.
+    """
+    project = get_project_by_id(db, project_id)
+    project.dtn_no = dtn_no.strip() if dtn_no else None
     db.commit()
     return _load_response(db, project_id)
 
@@ -223,4 +251,5 @@ def _load_response(db: Session, project_id: UUID) -> ProjectResponse:
         .filter(Project.project_id == project_id)
         .first()
     )
+    recompute_project_status(db, project, commit=True)
     return ProjectResponse.model_validate(project)

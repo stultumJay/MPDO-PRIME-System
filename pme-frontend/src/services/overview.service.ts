@@ -16,7 +16,7 @@ async function requestJson<T>(
 }
 
 function toNumber(value: unknown, fallback = 0): number {
-  const n = typeof value === "string" ? Number(value) : Number(value);
+  const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
 }
 
@@ -31,11 +31,19 @@ function formatLabel(text: string | undefined | null): string {
 function toneFromAction(action?: string): "primary" | "info" | "danger" {
   const value = (action ?? "").toLowerCase();
 
-  if (value.includes("delete") || value.includes("remove") || value.includes("reject")) {
+  if (
+    value.includes("delete") ||
+    value.includes("remove") ||
+    value.includes("reject")
+  ) {
     return "danger";
   }
 
-  if (value.includes("create") || value.includes("approve") || value.includes("resolve")) {
+  if (
+    value.includes("create") ||
+    value.includes("approve") ||
+    value.includes("resolve")
+  ) {
     return "info";
   }
 
@@ -149,19 +157,13 @@ async function getSummary(fiscalYear?: number): Promise<SummaryResponse> {
   });
 }
 
-async function getFinancialTrend(
-  months = 6,
-  fiscalYear?: number,
-): Promise<FinancialResponse[]> {
+async function getFinancialTrend(months = 6): Promise<FinancialResponse[]> {
   return requestJson<FinancialResponse[]>("/dashboard/allocation-vs-disbursement", {
     months,
-    fiscal_year: fiscalYear,
   });
 }
 
-async function getSectorImpact(
-  fiscalYear?: number,
-): Promise<SectorImpactResponse> {
+async function getSectorImpact(fiscalYear?: number): Promise<SectorImpactResponse> {
   return requestJson<SectorImpactResponse>("/dashboard/sector-impact", {
     fiscal_year: fiscalYear,
   });
@@ -187,7 +189,7 @@ export async function getOverviewData(
 
   const [summary, financial, sectors, activity, markers] = await Promise.all([
     getSummary(options.fiscalYear),
-    getFinancialTrend(months, options.fiscalYear),
+    getFinancialTrend(months),
     getSectorImpact(options.fiscalYear),
     getInstitutionalPulse(pulseLimit),
     getMapMarkers(options.fiscalYear).catch(() => [] as MapResponse),
@@ -209,17 +211,16 @@ export async function getOverviewData(
     utilized: toNumber(row.utilized),
   }));
 
-  const sectorCounts = sectors.map((row, index) => ({
-    sector_id: String(index + 1),
-    sector_name: row.sector,
-    project_count: toNumber(row.count),
-    share: 0,
-  }));
+  const sectorCounts = sectors
+    .filter((row) => toNumber(row.count) > 0)
+    .map((row, index) => ({
+      sector_id: String(index + 1),
+      sector_name: row.sector,
+      project_count: toNumber(row.count),
+      share: 0,
+    }));
 
-  const maxSectorCount = Math.max(
-    ...sectorCounts.map((s) => s.project_count),
-    1,
-  );
+  const maxSectorCount = Math.max(...sectorCounts.map((s) => s.project_count), 1);
 
   const sectorImpact: OverviewSectorPoint[] = sectorCounts.map((s) => ({
     ...s,
@@ -236,7 +237,6 @@ export async function getOverviewData(
       return {
         id: item.audit_id ?? String(item.id ?? index),
         project_title: entityLabel,
-        // Keeping the actor in the pulse detail makes recent activity accountable on the dashboard too.
         detail: actor && actor !== "System" ? `${actor}: ${detail}` : detail,
         highlight: formatLabel(action),
         highlight_tone: toneFromAction(action),
