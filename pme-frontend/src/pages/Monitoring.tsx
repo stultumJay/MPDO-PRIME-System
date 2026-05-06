@@ -311,9 +311,9 @@ export default function Monitoring() {
               </div>
             </div>
 
-            {error ? (
+            {displayError ? (
               <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm font-medium text-destructive">
-                {error}
+                {displayError}
               </div>
             ) : null}
 

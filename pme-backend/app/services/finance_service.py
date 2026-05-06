@@ -23,8 +23,15 @@ from app.schemas.finance import (
     FinanceLedgerFundSource, FinanceLedgerObligation,
     VALID_EXPENSE_CLASSES,
 )
+from app.services.audit_service import log_activity
 
 _Z = Decimal("0.00")
+
+
+def _user_name(db: Session, user_id):
+    if not user_id:
+        return None
+    return db.query(UserAccount.full_name).filter(UserAccount.user_id == user_id).scalar()
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -123,6 +130,14 @@ def create_appropriation(
     db.add(appropriation)
     db.commit()
     db.refresh(appropriation)
+    log_activity(
+        db,
+        "Create",
+        "Appropriation",
+        appropriation.appropriation_id,
+        f"Created appropriation {appropriation.ao_number} for FY{appropriation.fiscal_year}.",
+        current_user.user_id,
+    )
     return AppropriationResponse.model_validate(appropriation)
 
 
@@ -193,7 +208,7 @@ def delete_appropriation(db: Session, appropriation_id: UUID) -> dict:
 # ══════════════════════════════════════════════════════════════════════════
 
 def create_appr_fund_source(
-    db: Session, data: AppropriationFundSourceCreate
+    db: Session, data: AppropriationFundSourceCreate, current_user: UserAccount
 ) -> AppropriationFundSourceResponse:
     """
     This creates the appr fund source record for the service layer
@@ -223,6 +238,14 @@ def create_appr_fund_source(
     db.add(afs)
     db.commit()
     db.refresh(afs)
+    log_activity(
+        db,
+        "Create",
+        "Appropriation Fund Source",
+        afs.appr_fund_source_id,
+        f"Authorized {afs.expense_class} appropriation line.",
+        current_user.user_id,
+    )
     return AppropriationFundSourceResponse.model_validate(afs)
 
 
@@ -264,6 +287,13 @@ def update_appr_fund_source(
     afs = get_appr_fund_source(db, appr_fund_source_id)
 
     if data.appropriated_amount is not None:
+        current_amount = Decimal(str(afs.appropriated_amount or _Z))
+        if data.appropriated_amount < current_amount:
+            raise HTTPException(
+                400,
+                f"Cannot reduce appropriated amount below the current stored amount of {current_amount:,.2f}.",
+            )
+
         # This blocks shrinking the appropriation line below money that has already been released from it
         total_allotted = db.query(
             func.coalesce(func.sum(Allotment.amount_released), _Z)
@@ -309,7 +339,7 @@ def delete_appr_fund_source(db: Session, appr_fund_source_id: UUID) -> dict:
 # ══════════════════════════════════════════════════════════════════════════
 
 def get_project_financial_summary(
-    db: Session, project_id: UUID
+    db: Session, project_id: UUID, fiscal_year: Optional[int] = None
 ) -> ProjectFinancialSummary:
     """
     This gets the project financial summary data the caller asked for
@@ -322,6 +352,14 @@ def get_project_financial_summary(
     ).first()
     if not project:
         raise HTTPException(404, "Project not found.")
+
+    project_aip_filters = [
+        ProjectAIP.project_id == project_id,
+        ProjectAIP.is_active.is_(True),
+        Appropriation.is_active.is_(True),
+    ]
+    if fiscal_year is not None:
+        project_aip_filters.append(ProjectAIP.fiscal_year == fiscal_year)
 
     lines: List[ExpenseClassLine] = []
     total_appr = total_allot = total_oblig = total_disb = _Z
@@ -338,7 +376,7 @@ def get_project_financial_summary(
             ProjectAIP,
             Appropriation.project_aip_id == ProjectAIP.project_aip_id,
         ).filter(
-            ProjectAIP.project_id == project_id,
+            *project_aip_filters,
             AppropriationFundSource.expense_class == ec,
         ).scalar() or _Z
 
@@ -355,7 +393,7 @@ def get_project_financial_summary(
             ProjectAIP,
             Appropriation.project_aip_id == ProjectAIP.project_aip_id,
         ).filter(
-            ProjectAIP.project_id == project_id,
+            *project_aip_filters,
             AppropriationFundSource.expense_class == ec,
         ).scalar() or _Z
 
@@ -375,7 +413,7 @@ def get_project_financial_summary(
             ProjectAIP,
             Appropriation.project_aip_id == ProjectAIP.project_aip_id,
         ).filter(
-            ProjectAIP.project_id == project_id,
+            *project_aip_filters,
             AppropriationFundSource.expense_class == ec,
         ).scalar() or _Z
 
@@ -398,7 +436,7 @@ def get_project_financial_summary(
             ProjectAIP,
             Appropriation.project_aip_id == ProjectAIP.project_aip_id,
         ).filter(
-            ProjectAIP.project_id == project_id,
+            *project_aip_filters,
             AppropriationFundSource.expense_class == ec,
         ).scalar() or _Z
 
@@ -433,7 +471,7 @@ def get_project_financial_summary(
 
 
 def get_project_financial_ledger(
-    db: Session, project_id: UUID
+    db: Session, project_id: UUID, fiscal_year: Optional[int] = None
 ) -> ProjectFinancialLedger:
     """
     This gets the project financial ledger data the caller asked for
@@ -447,6 +485,14 @@ def get_project_financial_ledger(
     if not project:
         raise HTTPException(404, "Project not found.")
 
+    project_aip_filters = [
+        ProjectAIP.project_id == project_id,
+        ProjectAIP.is_active.is_(True),
+        Appropriation.is_active.is_(True),
+    ]
+    if fiscal_year is not None:
+        project_aip_filters.append(ProjectAIP.fiscal_year == fiscal_year)
+
     source_rows = (
         db.query(AppropriationFundSource)
         .join(
@@ -458,9 +504,7 @@ def get_project_financial_ledger(
             Appropriation.project_aip_id == ProjectAIP.project_aip_id,
         )
         .filter(
-            ProjectAIP.project_id == project_id,
-            ProjectAIP.is_active.is_(True),
-            Appropriation.is_active.is_(True),
+            *project_aip_filters,
         )
         .all()
     )
@@ -528,6 +572,7 @@ def get_project_financial_ledger(
             appropriated_amount=appropriated,
             allotted_total=allotted,
             available_for_allotment=appropriated - allotted,
+            created_by_name=_user_name(db, row.appropriation.created_by if row.appropriation else None),
         ))
 
     allotments = []
@@ -543,6 +588,7 @@ def get_project_financial_ledger(
             remarks=row.remarks,
             obligated_total=obligated,
             free_balance=released - obligated,
+            released_by_name=_user_name(db, row.released_by),
         ))
 
     obligations = []
@@ -559,6 +605,7 @@ def get_project_financial_ledger(
             remarks=row.remarks,
             disbursed_total=disbursed,
             unpaid_balance=obligated - disbursed,
+            created_by_name=_user_name(db, row.created_by),
         ))
 
     disbursements = [
@@ -570,6 +617,7 @@ def get_project_financial_ledger(
             disbursement_amount=Decimal(str(row.disbursement_amount or _Z)),
             disbursement_date=row.disbursement_date,
             remarks=row.remarks,
+            created_by_name=_user_name(db, row.created_by),
         )
         for row in disbursement_rows
     ]
