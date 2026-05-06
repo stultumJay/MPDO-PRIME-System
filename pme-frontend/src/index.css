@@ -21,15 +21,27 @@
   --primary: oklch(0.72 0.14 184);
   --primary-foreground: oklch(1 0 0);
 
+  --destructive: oklch(0.63 0.22 25.5);
+  --destructive-foreground: oklch(1 0 0);
+
   --accent: #16a34a;
 
-  /* STATUS COLORS */
+  /* =========================
+     STATUS COLORS
+  ========================= */
   --status-ongoing: oklch(0.62 0.18 252);
   --status-completed: oklch(0.69 0.16 162);
   --status-delayed: oklch(0.63 0.22 25.5);
   --status-utilization: oklch(0.72 0.18 55);
 
-  /* SIDEBAR */
+
+  --warning: oklch(0.75 0.18 70);
+  --info: var(--primary);
+  --success: var(--status-completed);
+
+  /* =========================
+     SIDEBAR
+  ========================= */
   --sidebar: oklch(0.21 0.04 265);
   --sidebar-foreground: oklch(1 0 0);
 
@@ -105,7 +117,7 @@
 }
 
 /* =========================
-   LANDING PAGE (YOUR STYLE)
+   LANDING PAGE
 ========================= */
 @layer components {
   .feature-card {
