@@ -4,6 +4,7 @@ from uuid import UUID
 from pydantic import BaseModel, EmailStr, field_validator, model_validator
 
 from app.schemas.role import RoleOut
+from app.schemas.office import OfficeResponse
 
 
 class UserCreate(BaseModel):
@@ -13,6 +14,7 @@ class UserCreate(BaseModel):
     password: str
     role_id: Optional[UUID] = None
     role_name: Optional[str] = None
+    office_id: Optional[UUID] = None
 
     @model_validator(mode="after")
     def validate_role_selection(self):
@@ -27,6 +29,7 @@ class UserUpdate(BaseModel):
     email: Optional[EmailStr] = None
     role_id: Optional[UUID] = None
     role_name: Optional[str] = None
+    office_id: Optional[UUID] = None
     is_active: Optional[bool] = None
 
 
@@ -46,6 +49,8 @@ class UserOut(BaseModel):
     email: EmailStr
     role_id: Optional[UUID] = None
     role: Optional[RoleOut] = None
+    office_id: Optional[UUID] = None
+    office: Optional[OfficeResponse] = None
     is_active: bool
 
     class Config:

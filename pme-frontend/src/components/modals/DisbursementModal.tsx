@@ -29,8 +29,13 @@ export default function DisbursementModal({
   year,
   obligations,
 }: Props) {
+  const payableObligations = useMemo(
+    () => obligations.filter((obligation) => obligation.unpaid > 0),
+    [obligations],
+  );
+
   const [obligationId, setObligationId] = useState(
-    obligations[0]?.obligation_id ?? "",
+    payableObligations[0]?.obligation_id ?? "",
   );
   const [method, setMethod] = useState<string>("Check");
   const [refNumber, setRefNumber] = useState("");
@@ -42,19 +47,19 @@ export default function DisbursementModal({
 
   useEffect(() => {
     if (!open) return;
-    setObligationId(obligations[0]?.obligation_id ?? "");
+    setObligationId(payableObligations[0]?.obligation_id ?? "");
     setMethod("Check");
     setRefNumber("");
     setDisbursementAmount("");
     setDisbursementDate("");
     setRemarks("");
     setError(null);
-  }, [open, obligations]);
+  }, [open, payableObligations]);
 
   const selected = useMemo(
     () =>
-      obligations.find((o) => o.obligation_id === obligationId),
-    [obligationId, obligations],
+      payableObligations.find((o) => o.obligation_id === obligationId),
+    [obligationId, payableObligations],
   );
 
   const parsedAmount = Number(disbursementAmount) || 0;
@@ -128,6 +133,12 @@ export default function DisbursementModal({
         </div>
       )}
 
+      {obligations.length > 0 && payableObligations.length === 0 && (
+        <div className="mb-4 px-4 py-3 rounded-lg bg-amber-50 text-amber-800 text-xs font-medium border border-amber-200">
+          All obligations for FY {year} have been fully disbursed. Record another ObR before processing a payment.
+        </div>
+      )}
+
       <div className="space-y-5">
         {/* Obligation selector */}
         <div>
@@ -139,14 +150,14 @@ export default function DisbursementModal({
               setObligationId(e.target.value);
               setDisbursementAmount(""); // reset amount when obligation changes
             }}
-            disabled={obligations.length === 0}
+            disabled={payableObligations.length === 0}
           >
-            {obligations.map((o) => (
+            {payableObligations.map((o) => (
               <option key={o.obligation_id} value={o.obligation_id}>
                 {o.label} — Unpaid: {formatPHPFull(o.unpaid)}
               </option>
             ))}
-            {obligations.length === 0 && (
+            {payableObligations.length === 0 && (
               <option>No obligations available</option>
             )}
           </select>

@@ -11,6 +11,7 @@ from app.models.disbursement import Disbursement
 from app.models.obligation import Obligation
 from app.models.user import UserAccount
 from app.schemas.obligation import ObligationCreate, ObligationUpdate, ObligationResponse
+from app.services.audit_service import log_activity
 
 _Z = Decimal("0.00")
 
@@ -78,6 +79,14 @@ def create_obligation(
     db.add(obligation)
     db.commit()
     db.refresh(obligation)
+    log_activity(
+        db,
+        "Create",
+        "Obligation",
+        obligation.obligation_id,
+        f"Created obligation {obligation.reference_document} for {obligation.payee}.",
+        current_user.user_id,
+    )
     return ObligationResponse.model_validate(obligation)
 
 

@@ -47,6 +47,7 @@ export default function AipPage() {
   const [sectorId, setSectorId] = useState("all");
   const [officeId, setOfficeId] = useState("all");
   const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const [page, setPage] = useState(1);
 
   const optionsQuery = useQuery({
@@ -67,16 +68,22 @@ export default function AipPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [fiscalYear, sectorId, officeId, query]);
+  }, [fiscalYear, sectorId, officeId, debouncedQuery]);
+
+  useEffect(() => {
+    // Wait for typing to pause before touching the API-backed AIP query.
+    const timeout = window.setTimeout(() => setDebouncedQuery(query.trim()), 1200);
+    return () => window.clearTimeout(timeout);
+  }, [query]);
 
   const listQuery = useQuery({
-    queryKey: ["aip", "list", fiscalYear, sectorId, officeId, query],
+    queryKey: ["aip", "list", fiscalYear, sectorId, officeId, debouncedQuery],
     queryFn: () =>
       getAipList({
         fiscalYear: fiscalYear ?? undefined,
         sectorId: sectorId === "all" ? undefined : sectorId,
         officeId: officeId === "all" ? undefined : officeId,
-        q: query.trim() || undefined,
+        q: debouncedQuery || undefined,
         page: 1,
         size: 500,
       }),
@@ -138,8 +145,8 @@ export default function AipPage() {
         "CO",
         "Total Proposed",
       ],
-      ...visibleItems.map((it, index) => [
-        String((currentPage - 1) * PAGE_SIZE + index + 1),
+      ...allItems.map((it, index) => [
+        String(index + 1),
         it.aip_reference_code,
         it.project_title,
         it.implementing_office,
@@ -156,7 +163,7 @@ export default function AipPage() {
   };
 
   const latestYear =
-    years.length > 0 ? years[years.length - 1] : new Date().getFullYear();
+    years.length > 0 ? years[0] : new Date().getFullYear();
 
   if ((loadingOptions || loadingList) && !payload) {
     return (
@@ -193,7 +200,7 @@ export default function AipPage() {
     <AppShell>
       <Topbar title="AIP Management" />
 
-      <div className="flex flex-1 flex-col gap-4 overflow-auto p-5">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-4 xl:p-5">
         <header className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <span className="mb-1 block text-[9px] font-bold uppercase tracking-[0.2em] text-primary">
@@ -220,6 +227,7 @@ export default function AipPage() {
                 setSectorId("all");
                 setOfficeId("all");
                 setQuery("");
+                setDebouncedQuery("");
                 setFiscalYear(latestYear);
               }}
               className="rounded bg-primary px-4 py-1.5 text-xs font-bold text-primary-foreground transition-all hover:bg-primary/90"
@@ -315,7 +323,7 @@ export default function AipPage() {
           <span>
             Showing {visibleItems.length} of {summary.count} entries
           </span>
-          {loadingList ? <span>Updating...</span> : <span>Ready</span>}
+          {loadingList || query.trim() !== debouncedQuery ? <span>Updating...</span> : <span>Ready</span>}
         </div>
 
         <div className="overflow-hidden rounded-xl border border-border/50 bg-card shadow-sm">
@@ -398,28 +406,28 @@ function AipRow({
 }) {
   return (
     <tr className="border-t border-border/50 transition-colors hover:bg-muted/40">
-      <td className="px-3 py-2 font-mono text-[10px] text-muted-foreground">
+      <td className="px-3 py-2 font-mono text-[10px] font-semibold text-slate-700">
         {index + 1}
       </td>
-      <td className="truncate px-3 py-2 font-mono text-[10px] text-muted-foreground">
+      <td className="truncate px-3 py-2 font-mono text-[10px] font-black text-primary">
         {item.aip_reference_code}
       </td>
       <td className="truncate px-3 py-2 font-bold text-foreground">
         {item.project_title}
       </td>
-      <td className="truncate px-3 py-2 text-muted-foreground">
+      <td className="truncate px-3 py-2 font-medium text-slate-700">
         {item.implementing_office}
       </td>
-      <td className="px-3 py-2 text-right font-mono">
+      <td className="px-3 py-2 text-right font-mono text-slate-800">
         {formatPHP(item.propose_budget_ps)}
       </td>
-      <td className="px-3 py-2 text-right font-mono">
+      <td className="px-3 py-2 text-right font-mono text-slate-800">
         {formatPHP(item.propose_budget_mooe)}
       </td>
-      <td className="px-3 py-2 text-right font-mono">
+      <td className="px-3 py-2 text-right font-mono text-slate-800">
         {formatPHP(item.propose_budget_fe)}
       </td>
-      <td className="px-3 py-2 text-right font-mono">
+      <td className="px-3 py-2 text-right font-mono text-slate-800">
         {formatPHP(item.propose_budget_co)}
       </td>
       <td className="px-3 py-2 text-right font-mono font-bold">

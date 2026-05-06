@@ -103,12 +103,12 @@ def delete_appropriation(appropriation_id: UUID, db: Session = Depends(get_db), 
 
 # ── AppropriationFundSource ────────────────────────────────────────────────
 @router.post("/appropriation-fund-sources", response_model=AppropriationFundSourceResponse, status_code=201)
-def create_appr_fund_source(data: AppropriationFundSourceCreate, db: Session = Depends(get_db), _: UserAccount = Depends(get_current_user)):
+def create_appr_fund_source(data: AppropriationFundSourceCreate, db: Session = Depends(get_db), current_user: UserAccount = Depends(get_current_user)):
     """
     This route creates the create appr fund source flow and passes the request into the service layer
     It expects appropriation_id as UUID, fund_source_id as UUID, expense_class as ExpenseClass, and appropriated_amount as Decimal
     """
-    return finance_service.create_appr_fund_source(db, data)
+    return finance_service.create_appr_fund_source(db, data, current_user)
 
 @router.get("/appropriation-fund-sources", response_model=List[AppropriationFundSourceResponse])
 def list_appr_fund_sources(
@@ -148,22 +148,24 @@ def delete_appr_fund_source(appr_fund_source_id: UUID, db: Session = Depends(get
 @router.get("/projects/{project_id}/summary", response_model=ProjectFinancialSummary)
 def project_financial_summary(
     project_id: UUID,
+    fiscal_year: Optional[int] = Query(None, description="Filter by project AIP fiscal year"),
     db: Session = Depends(get_db),
     _: UserAccount = Depends(get_current_user),
 ):
     """
     This route returns the project financial summary data the caller asked for
     """
-    return finance_service.get_project_financial_summary(db, project_id)
+    return finance_service.get_project_financial_summary(db, project_id, fiscal_year=fiscal_year)
 
 
 @router.get("/projects/{project_id}/ledger", response_model=ProjectFinancialLedger)
 def project_financial_ledger(
     project_id: UUID,
+    fiscal_year: Optional[int] = Query(None, description="Filter by project AIP fiscal year"),
     db: Session = Depends(get_db),
     _: UserAccount = Depends(get_current_user),
 ):
     """
     This route returns the project financial ledger data the caller asked for
     """
-    return finance_service.get_project_financial_ledger(db, project_id)
+    return finance_service.get_project_financial_ledger(db, project_id, fiscal_year=fiscal_year)

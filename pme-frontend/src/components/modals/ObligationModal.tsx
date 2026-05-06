@@ -21,8 +21,13 @@ interface Props {
 }
 
 export default function ObligationModal({ open, onClose, onSaved, year, allotments }: Props) {
+  const availableAllotments = useMemo(
+    () => allotments.filter((allotment) => allotment.free_balance > 0),
+    [allotments],
+  );
+
   const [allotmentId, setAllotmentId] = useState(
-    allotments[0]?.allotment_id ?? "",
+    availableAllotments[0]?.allotment_id ?? "",
   );
   const [payee, setPayee] = useState("");
   const [obligationAmount, setObligationAmount] = useState("");
@@ -34,18 +39,18 @@ export default function ObligationModal({ open, onClose, onSaved, year, allotmen
 
   useEffect(() => {
     if (!open) return;
-    setAllotmentId(allotments[0]?.allotment_id ?? "");
+    setAllotmentId(availableAllotments[0]?.allotment_id ?? "");
     setPayee("");
     setObligationAmount("");
     setRefDoc("");
     setOblDate("");
     setRemarks("");
     setError(null);
-  }, [open, allotments]);
+  }, [open, availableAllotments]);
 
   const selected = useMemo(
-    () => allotments.find((a) => a.allotment_id === allotmentId),
-    [allotmentId, allotments],
+    () => availableAllotments.find((a) => a.allotment_id === allotmentId),
+    [allotmentId, availableAllotments],
   );
 
   const parsedAmount = Number(obligationAmount) || 0;
@@ -124,6 +129,12 @@ export default function ObligationModal({ open, onClose, onSaved, year, allotmen
         </div>
       )}
 
+      {allotments.length > 0 && availableAllotments.length === 0 && (
+        <div className="mb-4 px-4 py-3 rounded-lg bg-amber-50 text-amber-800 text-xs font-medium border border-amber-200">
+          All allotments for FY {year} are fully obligated. Issue another ARO before recording a new obligation.
+        </div>
+      )}
+
       <div className="space-y-5">
         {/* Allotment selector */}
         <div>
@@ -135,14 +146,14 @@ export default function ObligationModal({ open, onClose, onSaved, year, allotmen
               setAllotmentId(e.target.value);
               setObligationAmount(""); // reset amount when allotment changes
             }}
-            disabled={allotments.length === 0}
+            disabled={availableAllotments.length === 0}
           >
-            {allotments.map((a) => (
+            {availableAllotments.map((a) => (
               <option key={a.allotment_id} value={a.allotment_id}>
                 {a.label} — Free: {formatPHPFull(a.free_balance)}
               </option>
             ))}
-            {allotments.length === 0 && (
+            {availableAllotments.length === 0 && (
               <option>No allotments available</option>
             )}
           </select>

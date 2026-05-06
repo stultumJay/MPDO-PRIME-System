@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, Text
+from sqlalchemy import Column, DateTime, Integer, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 import uuid
@@ -21,6 +21,9 @@ class Performance(Base):
     actual_q2 = Column(Integer)
     actual_q3 = Column(Integer)
     actual_q4 = Column(Integer)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now()) 
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
 
     remarks = Column(Text)
 
