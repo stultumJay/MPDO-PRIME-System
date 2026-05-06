@@ -40,6 +40,7 @@ export interface IssueProjectOption {
 export interface IssueItem {
   issue_id: string;
   project_id: string;
+  sector_name?: string | null;
 
   issue_name: string;
   issue_category: string;
@@ -109,6 +110,7 @@ function normalizeIssue(row: IssueApiResponse): IssueItem {
   return {
     issue_id: String(row.issue_id ?? ""),
     project_id: String(row.project_id ?? ""),
+    sector_name: row.sector_name ?? row.sector?.sector_name ?? null,
 
     issue_name: String(row.issue_name ?? row.issue_title ?? ""),
     issue_category: String(row.issue_category ?? row.severity ?? ""),
@@ -130,7 +132,7 @@ export async function getIssueProjectOptions(): Promise<IssueProjectOption[]> {
   const payload = await requestJson<ListResponse<ProjectResponse>>(
     "/projects/",
     {},
-    { page: 1, size: 200 },
+    { page: 1, size: 100 },
   );
 
   const rows = unwrapList(payload);
@@ -150,7 +152,7 @@ export async function getIssues(projectId?: string): Promise<IssueItem[]> {
     return getProjectIssues(projectId);
   }
 
-  const payload = await requestJson<ListResponse<IssueApiResponse>>("/issues/", {}, { page: 1, size: 200 });
+  const payload = await requestJson<ListResponse<IssueApiResponse>>("/issues/", {}, { page: 1, size: 100 });
   return unwrapList(payload).map(normalizeIssue);
 }
 
