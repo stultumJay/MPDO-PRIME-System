@@ -1,5 +1,3 @@
-<<<<<<< Updated upstream
-=======
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
@@ -52,4 +50,3 @@ def project_status(
     This route returns the project status data the caller asked for
     """
     return get_project_status_distribution(db, fiscal_year)
->>>>>>> Stashed changes
