@@ -16,40 +16,52 @@ async function requestJson<T>(
 }
 
 function toNumber(value: unknown, fallback = 0): number {
-  const n = typeof value === "string" ? Number(value) : Number(value);
+  const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
 }
 
-function titleStatus(status: string) {
-  return status
-    .replaceAll("_", " ")
-    .replace(/\b\w/g, (m) => m.toUpperCase());
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
 }
 
-type SummaryResponse = {
-  total_projects?: number;
-  completed?: number;
-  delayed?: number;
-  utilization_percent?: number;
-  funds_utilized_amount?: number;
+function normalizeStatus(value: string | null | undefined) {
+  return String(value ?? "")
+    .trim()
+    .replace(/\s+/g, "_")
+    .toLowerCase();
+}
+
+function formatPHP(amount: number): string {
+  return new Intl.NumberFormat("en-PH", {
+    style: "currency",
+    currency: "PHP",
+    maximumFractionDigits: amount >= 1_000_000 ? 1 : 2,
+    minimumFractionDigits: amount >= 1_000_000 ? 1 : 2,
+  }).format(Number.isFinite(amount) ? amount : 0);
+}
+
+type ProjectSummaryItem = {
+  project_code: string;
+  project_title: string;
+  sector: string;
+  status: string;
+  approved_appropriation?: number | string | null;
+  allotted: number | string | null;
+  disbursed: number | string | null;
+  target_total?: number | string | null;
+  actual_q1?: number | string | null;
+  actual_q2?: number | string | null;
+  actual_q3?: number | string | null;
+  actual_q4?: number | string | null;
 };
+
+type ProjectSummaryResponse = ProjectSummaryItem[];
 
 type TrendResponse = {
   month: string;
   year?: number;
   allocated: number | string;
   utilized: number | string;
-}[];
-
-type ProjectSummaryResponse = {
-  project_code: string;
-  project_title: string;
-  sector: string;
-  status: string;
-  proposed: number | string;
-  allotted: number | string;
-  obligated: number | string;
-  disbursed: number | string;
 }[];
 
 export interface MonitoringStatusItem {
@@ -61,8 +73,8 @@ export interface MonitoringStatusItem {
 
 export interface MonitoringTrendItem {
   month: string;
-  target: number;
-  actual: number;
+  allocated: number;
+  utilized: number;
   highlight?: boolean;
   future?: boolean;
 }
@@ -77,128 +89,164 @@ export interface MonitoringProjectSummary {
 }
 
 export interface MonitoringPayload {
-  startDate: string;
-  endDate: string;
+  month: string;
   kpis: {
     totalProjects: number;
     activeProjects: number;
     completed: number;
+    delayed: number;
     appropriated: number;
     utilizedPercent: number;
   };
   statusDistribution: MonitoringStatusItem[];
-  completionTrends: MonitoringTrendItem[];
+  budgetTrends: MonitoringTrendItem[];
   projectSummaries: MonitoringProjectSummary[];
 }
 
 export interface MonitoringQuery {
-  startDate?: string;
-  endDate?: string;
+  month?: string;
 }
 
-const statusTone: Record<string, string> = {
-  completed: "bg-primary",
-  in_progress: "bg-teal-400",
-  ongoing: "bg-teal-400",
-  planned: "bg-slate-400",
-  delayed: "bg-destructive",
-};
+function computePhysical(item: ProjectSummaryItem): number {
+  const target = toNumber(item.target_total, 0);
+  const actuals =
+    toNumber(item.actual_q1) +
+    toNumber(item.actual_q2) +
+    toNumber(item.actual_q3) +
+    toNumber(item.actual_q4);
 
-function normalizeStatus(value: string) {
-  return value.trim().replace(/\s+/g, "_").toLowerCase();
+  if (target > 0) {
+    return clamp((actuals / target) * 100, 0, 100);
+  }
+
+  const status = normalizeStatus(item.status);
+  if (status === "completed") return 100;
+  if (status === "planned") return 0;
+  return 0;
 }
 
-export async function getMonitoringData(options: MonitoringQuery = {}): Promise<MonitoringPayload> {
-  const currentYear = new Date().getFullYear();
-  const startDate = options.startDate || `${currentYear}-01-01`;
-  const endDate = options.endDate || `${currentYear}-12-31`;
+export async function getMonitoringData(
+  options: MonitoringQuery = {},
+): Promise<MonitoringPayload> {
+  const fallbackMonth = new Date().toISOString().slice(0, 7);
+  const selectedMonth = /^\d{4}-\d{2}$/.test(options.month ?? "")
+    ? options.month!
+    : fallbackMonth;
+  const [yearStr, monthStr] = selectedMonth.split("-");
+  const fiscalYear = Number(yearStr);
 
-  const [summary, trends, projects] = await Promise.all([
-    requestJson<SummaryResponse>("/dashboard/summary"),
-    requestJson<TrendResponse>("/dashboard/allocation-vs-disbursement", { months: 6 }),
+  const [trends, projects] = await Promise.all([
+    requestJson<TrendResponse>("/dashboard/allocation-vs-disbursement", {
+      months: 6,
+      fiscal_year: fiscalYear,
+      anchor_year: Number(yearStr),
+      anchor_month: Number(monthStr),
+    }),
     requestJson<ProjectSummaryResponse>("/reports/projects-summary", {
-      start_date: startDate,
-      end_date: endDate,
+      fiscal_year: fiscalYear,
     }),
   ]);
 
   const totalProjects = projects.length;
-  const activeProjects = projects.filter((project) =>
-    ["in_progress", "ongoing", "active"].includes(normalizeStatus(project.status)),
-  ).length;
-  const completed = projects.filter((project) => normalizeStatus(project.status) === "completed").length;
-  const appropriated = projects.reduce((sum, project) => sum + toNumber(project.proposed), 0);
-  const utilized = projects.reduce((sum, project) => sum + toNumber(project.disbursed), 0);
-  const allotted = projects.reduce((sum, project) => sum + toNumber(project.allotted), 0);
-  const utilizedPercent = allotted > 0 ? (utilized / allotted) * 100 : toNumber(summary.utilization_percent);
+  const normalizedProjects = projects.map((project) => ({
+    ...project,
+    status: normalizeStatus(project.status),
+  }));
 
-  const orderedStatuses = ["completed", "in_progress", "planned", "delayed"];
-  const statusDistribution = orderedStatuses
-    .map((status) => {
-      const projectCount = projects.filter((project) => normalizeStatus(project.status) === status).length;
-      const count = projectCount;
+  const activeProjects = normalizedProjects.filter((p) =>
+    p.status === "in_progress",
+  ).length;
+
+  const completed = normalizedProjects.filter(
+    (p) => p.status === "completed",
+  ).length;
+
+  const delayed = normalizedProjects.filter(
+    (p) => p.status === "delayed",
+  ).length;
+
+  const appropriated = projects.reduce(
+    (sum, p) => sum + toNumber(p.approved_appropriation),
+    0,
+  );
+
+  const totalAllotted = projects.reduce(
+    (sum, p) => sum + toNumber(p.allotted),
+    0,
+  );
+
+  const totalDisbursed = projects.reduce(
+    (sum, p) => sum + toNumber(p.disbursed),
+    0,
+  );
+
+  const utilizedPercent =
+    totalAllotted > 0 ? (totalDisbursed / totalAllotted) * 100 : 0;
+
+  const statusBuckets = [
+    { key: "in_progress", label: "In Progress" },
+    { key: "planned", label: "Planned" },
+    { key: "completed", label: "Completed" },
+    { key: "delayed", label: "Delayed" },
+  ] as const;
+
+  const statusDistribution: MonitoringStatusItem[] = statusBuckets.map(
+    ({ key, label }) => {
+      const count = normalizedProjects.filter(
+        (p) => p.status === key,
+      ).length;
       const percent = totalProjects > 0 ? (count / totalProjects) * 100 : 0;
 
       return {
-        label: status === "in_progress" ? "Ongoing" : titleStatus(status),
+        label,
         count: String(count).padStart(2, "0"),
         percent,
-        tone: statusTone[status] ?? "bg-slate-400",
+        tone: key === "delayed" ? "bg-destructive" : "bg-primary",
       };
-    })
-    .filter((item) => item.count !== "00" || ["Planned", "Delayed"].includes(item.label));
+    },
+  );
 
   const maxTrendValue = Math.max(
-    ...trends.flatMap((trend) => [toNumber(trend.allocated), toNumber(trend.utilized)]),
+    ...trends.flatMap((t) => [toNumber(t.allocated), toNumber(t.utilized)]),
     1,
   );
 
-  const completionTrends = trends.map((trend, index) => ({
+  const budgetTrends: MonitoringTrendItem[] = trends.map((trend, index) => ({
     month: trend.month.toUpperCase(),
-    target: Math.max(8, (toNumber(trend.allocated) / maxTrendValue) * 100),
-    actual: Math.max(0, (toNumber(trend.utilized) / maxTrendValue) * 100),
+    allocated: Math.max(0, (toNumber(trend.allocated) / maxTrendValue) * 100),
+    utilized: Math.max(0, (toNumber(trend.utilized) / maxTrendValue) * 100),
     highlight: index === trends.length - 1,
+    future: false,
   }));
 
-  const projectSummaries = projects.map((project) => {
-    const proposed = toNumber(project.proposed);
-    const allottedAmount = toNumber(project.allotted);
-    const disbursedAmount = toNumber(project.disbursed);
-    const financial = allottedAmount > 0 ? (disbursedAmount / allottedAmount) * 100 : 0;
-    const status = normalizeStatus(project.status);
-    const physical = status === "completed" ? 100 : status === "planned" ? 0 : Math.min(95, Math.max(12, financial));
+  const projectSummaries: MonitoringProjectSummary[] = projects.map((p) => {
+    const allottedAmt = toNumber(p.allotted);
+    const disbursedAmt = toNumber(p.disbursed);
 
     return {
-      name: project.project_title,
-      code: project.project_code,
-      sector: project.sector,
-      budget: formatPHP(proposed),
-      financial,
-      physical,
+      name: p.project_title,
+      code: p.project_code,
+      sector: p.sector || "Unassigned",
+      budget: formatPHP(toNumber(p.approved_appropriation)),
+      financial: allottedAmt > 0 ? (disbursedAmt / allottedAmt) * 100 : 0,
+      physical: computePhysical(p),
     };
   });
 
   return {
-    startDate,
-    endDate,
+    month: selectedMonth,
     kpis: {
       totalProjects,
       activeProjects,
       completed,
+      delayed,
       appropriated,
       utilizedPercent,
     },
     statusDistribution,
-    completionTrends,
+    budgetTrends,
     projectSummaries,
   };
 }
 
-export function formatPHP(amount: number): string {
-  return new Intl.NumberFormat("en-PH", {
-    style: "currency",
-    currency: "PHP",
-    maximumFractionDigits: amount >= 1_000_000 ? 1 : 2,
-    minimumFractionDigits: amount >= 1_000_000 ? 1 : 2,
-  }).format(Number.isFinite(amount) ? amount : 0);
-}
+export { formatPHP };

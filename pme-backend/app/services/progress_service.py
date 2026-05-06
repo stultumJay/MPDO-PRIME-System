@@ -10,6 +10,7 @@ from app.models.phase_config import PhaseConfig
 from app.models.progress import Progress
 from app.models.project import Project
 from app.models.user import UserAccount
+from app.services.project_status_service import recompute_project_status
 from app.services.audit_service import log_activity
 from app.schemas.progress import (
     ProgressCreate, ProgressUpdate, ProgressResponse,
@@ -72,6 +73,8 @@ def create_progress(db: Session, data: ProgressCreate, current_user: UserAccount
         logged_by        = current_user.user_id,
     )
     db.add(log)
+    db.flush()
+    recompute_project_status(db, data.project_id)
     db.commit()
     db.refresh(log)
     log_activity(
@@ -168,6 +171,7 @@ def update_progress(
     if data.remarks is not None:
         log.remarks = data.remarks
 
+    recompute_project_status(db, log.project_id)
     db.commit()
     db.refresh(log)
     return ProgressResponse.model_validate(log)
@@ -181,6 +185,9 @@ def delete_progress(db: Session, progress_id: UUID) -> dict:
     It loads the current row first so the service can return a clear error when the record is missing
     """
     log = _get_or_404(db, progress_id)
+    project_id = log.project_id
     db.delete(log)
+    db.flush()
+    recompute_project_status(db, project_id)
     db.commit()
     return {"detail": "Progress record deleted."}
