@@ -10,6 +10,7 @@ from app.models.disbursement import Disbursement
 from app.models.obligation import Obligation
 from app.models.user import UserAccount
 from app.schemas.disbursement import DisbursementCreate, DisbursementUpdate, DisbursementResponse
+from app.services.audit_service import log_activity
 
 _Z = Decimal("0.00")
 
@@ -79,6 +80,14 @@ def create_disbursement(
     db.add(disbursement)
     db.commit()
     db.refresh(disbursement)
+    log_activity(
+        db,
+        "Create",
+        "Disbursement",
+        disbursement.disbursement_id,
+        f"Recorded disbursement {disbursement.reference_number or disbursement.payment_method}.",
+        current_user.user_id,
+    )
     return DisbursementResponse.model_validate(disbursement)
 
 

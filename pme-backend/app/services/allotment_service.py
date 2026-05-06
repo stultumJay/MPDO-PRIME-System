@@ -11,6 +11,7 @@ from app.models.finance import AppropriationFundSource
 from app.models.obligation import Obligation
 from app.models.user import UserAccount
 from app.schemas.allotment import AllotmentCreate, AllotmentUpdate, AllotmentResponse
+from app.services.audit_service import log_activity
 
 _Z = Decimal("0.00")
 
@@ -77,6 +78,14 @@ def create_allotment(
     db.add(allotment)
     db.commit()
     db.refresh(allotment)
+    log_activity(
+        db,
+        "Create",
+        "Allotment",
+        allotment.allotment_id,
+        f"Released allotment {allotment.aro_number}.",
+        current_user.user_id,
+    )
     return AllotmentResponse.model_validate(allotment)
 
 
