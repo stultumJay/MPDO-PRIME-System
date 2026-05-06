@@ -21,6 +21,12 @@ export interface AuditEntry {
   detail: string;
 }
 
+export interface AuditQuery {
+  startDate?: string;
+  endDate?: string;
+  limit?: number;
+}
+
 type AuditResponse = {
   audit_id?: string;
   id?: string | number;
@@ -58,8 +64,12 @@ function formatTimestamp(value: unknown) {
   });
 }
 
-export async function getAuditEntries(): Promise<AuditEntry[]> {
-  const rows = await requestJson<AuditResponse>("/audit/activities", { limit: 100 });
+export async function getAuditEntries(query: AuditQuery = {}): Promise<AuditEntry[]> {
+  const rows = await requestJson<AuditResponse>("/audit/activities", {
+    limit: query.limit ?? 100,
+    start_date: query.startDate,
+    end_date: query.endDate,
+  });
 
   return rows.map((row, index) => {
     const action = normalizeAction(row.action);

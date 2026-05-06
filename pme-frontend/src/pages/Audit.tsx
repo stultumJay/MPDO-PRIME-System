@@ -69,23 +69,41 @@ function downloadCsv(filename: string, rows: Array<Array<string | number>>) {
   URL.revokeObjectURL(url);
 }
 
+function getCurrentMonthRange() {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = today.getMonth();
+  const monthNumber = String(month + 1).padStart(2, "0");
+  const lastDay = new Date(year, month + 1, 0).getDate();
+
+  return {
+    startDate: `${year}-${monthNumber}-01`,
+    endDate: `${year}-${monthNumber}-${String(lastDay).padStart(2, "0")}`,
+  };
+}
+
 export default function Audit() {
+  const defaultRange = useMemo(() => getCurrentMonthRange(), []);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedModule, setSelectedModule] = useState("All Modules");
   const [selectedAction, setSelectedAction] = useState(actions[0]);
+  const [startDate, setStartDate] = useState(defaultRange.startDate);
+  const [endDate, setEndDate] = useState(defaultRange.endDate);
   const [page, setPage] = useState(1);
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const activeDateRangeInvalid = Boolean(startDate && endDate && startDate > endDate);
 
   useEffect(() => {
+    if (activeDateRangeInvalid) return;
     let mounted = true;
 
     async function load() {
       try {
         setLoading(true);
         setError(null);
-        const rows = await getAuditEntries();
+        const rows = await getAuditEntries({ startDate, endDate, limit: 250 });
         if (!mounted) return;
         setEntries(rows.length ? rows : []);
       } catch (err) {
@@ -101,7 +119,7 @@ export default function Audit() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [activeDateRangeInvalid, endDate, startDate]);
 
   const filteredEntries = useMemo(() => {
     const normalizedSearch = searchTerm.trim().toLowerCase();
@@ -126,7 +144,7 @@ export default function Audit() {
 
   useEffect(() => {
     setPage(1);
-  }, [searchTerm, selectedAction, selectedModule]);
+  }, [searchTerm, selectedAction, selectedModule, startDate, endDate]);
 
   const pageCount = Math.max(1, Math.ceil(filteredEntries.length / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
@@ -134,6 +152,7 @@ export default function Audit() {
     (currentPage - 1) * PAGE_SIZE,
     currentPage * PAGE_SIZE,
   );
+  const displayError = activeDateRangeInvalid ? "Start date must be earlier than end date." : error;
 
   const dynamicMetrics = useMemo(() => {
     if (!entries.length) return [];
@@ -154,7 +173,7 @@ export default function Audit() {
   }, [entries]);
 
   const exportAuditLog = () => {
-    downloadCsv("audit-trail.csv", [
+    downloadCsv(`audit-trail_${startDate}_${endDate}.csv`, [
       ["Record ID", "Action", "Title", "Module", "User", "Timestamp", "Detail"],
       ...filteredEntries.map((entry) => [
         entry.id,
@@ -189,9 +208,9 @@ export default function Audit() {
               </p>
             </div>
 
-            {error ? (
+            {displayError ? (
               <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm font-medium text-destructive">
-                {error}
+                {displayError}
               </div>
             ) : null}
 
@@ -203,14 +222,29 @@ export default function Audit() {
 
             <div className="grid gap-5 xl:grid-cols-12">
               <div className="space-y-5 xl:col-span-9">
-                <section className="grid gap-3 rounded-xl border border-border bg-card p-4 shadow-sm lg:grid-cols-[160px_160px_auto]">
+                <section className="grid gap-3 rounded-xl border border-border bg-card p-4 shadow-sm lg:grid-cols-[160px_160px_1fr_1fr]">
                   <AuditSelect value={selectedModule} options={moduleOptions} onChange={setSelectedModule} />
                   <AuditSelect value={selectedAction} options={actions} onChange={setSelectedAction} />
 
-                  <div className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 text-xs font-black text-slate-950">
+                  <label className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 text-xs font-black text-slate-950">
                     <span className="material-symbols-outlined text-sm text-slate-400">calendar_today</span>
-                    Oct 01 - Oct 31, 2025
-                  </div>
+                    <span className="text-[9px] uppercase tracking-widest text-slate-400">Start</span>
+                    <input
+                      type="date"
+                      value={startDate}
+                      onChange={(event) => setStartDate(event.target.value)}
+                      className="min-w-0 border-none bg-transparent p-0 text-xs font-black outline-none"
+                    />
+                  </label>
+                  <label className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 text-xs font-black text-slate-950">
+                    <span className="text-[9px] uppercase tracking-widest text-slate-400">End</span>
+                    <input
+                      type="date"
+                      value={endDate}
+                      onChange={(event) => setEndDate(event.target.value)}
+                      className="min-w-0 border-none bg-transparent p-0 text-xs font-black outline-none"
+                    />
+                  </label>
                 </section>
 
                 <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
