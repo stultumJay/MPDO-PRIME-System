@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { AppShell } from "@/components/layout/AppShell";
@@ -41,9 +41,67 @@ function buildFallbackMonths(count: number) {
   });
 }
 
+function useRevealOnce<T extends HTMLElement>() {
+  const ref = useRef<T | null>(null);
+  const [revealed, setRevealed] = useState(false);
+
+  useEffect(() => {
+    if (revealed) return;
+    const node = ref.current;
+    if (!node) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setRevealed(true);
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.2, rootMargin: "0px 0px -8% 0px" },
+    );
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [revealed]);
+
+  return [ref, revealed] as const;
+}
+
+function useCountUp(value: number, enabled: boolean, duration = 700) {
+  const [displayValue, setDisplayValue] = useState(0);
+
+  useEffect(() => {
+    if (!enabled) {
+      setDisplayValue(0);
+      return;
+    }
+
+    let frame = 0;
+    let startTime: number | null = null;
+
+    const animate = (time: number) => {
+      if (startTime === null) startTime = time;
+      const progress = Math.min((time - startTime) / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setDisplayValue(value * eased);
+
+      if (progress < 1) {
+        frame = requestAnimationFrame(animate);
+      }
+    };
+
+    frame = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(frame);
+  }, [duration, enabled, value]);
+
+  return displayValue;
+}
+
 export default function Overview() {
   const navigate = useNavigate();
   const [hoveredMonth, setHoveredMonth] = useState<string | null>(null);
+  const [financialKpisRef, financialKpisRevealed] = useRevealOnce<HTMLElement>();
+  const [financialChartRef, financialChartRevealed] = useRevealOnce<HTMLDivElement>();
   const overviewQuery = useQuery({
     queryKey: ["overview", "dashboard"],
     queryFn: () =>
@@ -91,6 +149,14 @@ export default function Overview() {
     return months.length ? months : buildFallbackMonths(6);
   }, [financial]);
   const maxFinancial = Math.max(...chartData.flatMap((m) => [m.allocated, m.utilized]), 1);
+  const animatedUtilization = useCountUp(
+    data?.kpis.utilization_percent ?? 0,
+    financialKpisRevealed && Boolean(data),
+  );
+  const animatedFundsUtilized = useCountUp(
+    data?.kpis.funds_utilized ?? 0,
+    financialKpisRevealed && Boolean(data),
+  );
   
 
   // const markerBounds = useMemo(() => {
@@ -196,7 +262,7 @@ export default function Overview() {
           </div>
         ) : null}
 
-        <section className="grid shrink-0 grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
+        <section ref={financialKpisRef} className="grid shrink-0 grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
           <KpiCard
             label="Total Projects"
             value={kpis.total_projects}
@@ -204,7 +270,7 @@ export default function Overview() {
             tone="primary"
           />
           <KpiCard
-            label="Ongoing"
+            label="In Progress"
             value={kpis.ongoing}
             icon="sync"
             tone="ongoing"
@@ -223,13 +289,13 @@ export default function Overview() {
           />
           <KpiCard
             label="Utilization"
-            value={`${kpis.utilization_percent}%`}
+            value={`${animatedUtilization.toFixed(1)}%`}
             icon="trending_up"
             tone="utilization"
           />
           <KpiCard
             label="Funds Utilized"
-            value={formatPHP(kpis.funds_utilized)}
+            value={formatPHP(animatedFundsUtilized)}
             icon="payments"
             tone="primary"
           />
@@ -237,7 +303,7 @@ export default function Overview() {
 
         <div className="grid min-h-0 grid-cols-1 gap-5 xl:grid-cols-12 xl:gap-6">
           <div className="flex flex-col gap-5 xl:col-span-8 xl:gap-6">
-            <div className="flex h-[360px] flex-col overflow-hidden rounded border border-border/50 bg-card p-5 shadow-sm">
+            <div ref={financialChartRef} className="flex h-[360px] flex-col overflow-hidden rounded border border-border/50 bg-card p-5 shadow-sm">
               <div className="mb-6 flex items-center justify-between">
                 <div>
                   <h2 className="text-sm font-bold">Financial Trajectory</h2>
@@ -283,8 +349,8 @@ export default function Overview() {
                             <div
                               className="w-full rounded-t bg-emerald-500 transition-all duration-300"
                               style={{
-                                height: `${allocatedHeight}%`,
-                                opacity: month.allocated > 0 ? 1 : 0.28,
+                                height: `${financialChartRevealed ? allocatedHeight : 0}%`,
+                                opacity: financialChartRevealed && month.allocated > 0 ? 1 : 0.28,
                               }}
                             />
                           </div>
@@ -292,8 +358,8 @@ export default function Overview() {
                             <div
                               className="w-full rounded-t bg-sky-500 transition-all duration-300"
                               style={{
-                                height: `${utilizedHeight}%`,
-                                opacity: month.utilized > 0 ? 1 : 0.28,
+                                height: `${financialChartRevealed ? utilizedHeight : 0}%`,
+                                opacity: financialChartRevealed && month.utilized > 0 ? 1 : 0.28,
                               }}
                             />
                           </div>
