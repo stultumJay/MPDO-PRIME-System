@@ -18,8 +18,10 @@ from app.models.allotment import Allotment
 from app.models.obligation import Obligation
 from app.models.disbursement import Disbursement
 from app.models.issue import Issue
+from app.models.user import UserAccount
 
 from app.services.project_document_service import get_project_documents
+from app.services.project_status_service import recompute_project_status
 from app.integrations.locational_clearance_client import check_clearance
 
 
@@ -42,11 +44,12 @@ def _ensure_project(db: Session, project_id: UUID) -> Project:
 
     if not project:
         raise HTTPException(404, "Project not found.")
+    recompute_project_status(db, project, commit=True)
     return project
 
 
 # ─────────────────────────────────────────────
-# BASIC DETAIL (SAFE + NON-BREAKING)
+# BASIC DETAIL
 # ─────────────────────────────────────────────
 def get_project_detail(db: Session, project_id: UUID):
     """
@@ -102,18 +105,18 @@ def get_project_detail(db: Session, project_id: UUID):
     ]
 
     # ─────────────────────────────
-    # Documents (SAFE FALLBACK)
+    # Documents
     # ─────────────────────────────
     # Document loading uses a safe fallback because document services should not break the whole detail page
     try:
-        documents = get_project_documents(project_id)
+        documents = get_project_documents(getattr(project, "dtn_no", None))
         if not isinstance(documents, list):
             documents = []
     except Exception:
         documents = []
 
     # ─────────────────────────────
-    # LOCATIONAL CLEARANCE (CRITICAL FIX)
+    # LOCATIONAL CLEARANCE
     # ─────────────────────────────
     clearance = {
         "is_clearanced": False,
@@ -155,7 +158,7 @@ def get_project_detail(db: Session, project_id: UUID):
         }
 
     # ─────────────────────────────
-    # Fiscal Years (FIXED MISSING FIELD)
+    # Fiscal Years
     # ─────────────────────────────
     fiscal_years = get_aip_years(db, project_id)
     aip_contexts = get_aip_contexts(db, project_id)
@@ -252,20 +255,34 @@ def get_project_physical_progress(db: Session, project_id: UUID):
 
     phases = db.query(PhaseConfig).all()
 
-    return [
-        {
+    rows = []
+    for p in phases:
+        latest = (
+            db.query(Progress)
+            .filter(
+                Progress.project_id == project_id,
+                Progress.phase_id == p.phase_id,
+            )
+            .order_by(Progress.logged_at.desc())
+            .first()
+        )
+        logged_by_name = None
+        if latest and latest.logged_by:
+            logged_by_name = (
+                db.query(UserAccount.full_name)
+                .filter(UserAccount.user_id == latest.logged_by)
+                .scalar()
+            )
+
+        rows.append({
             "phase": p.phase_name,
-            "percent": float(
-                db.query(func.coalesce(func.max(Progress.new_percent), 0))
-                .filter(
-                    Progress.project_id == project_id,
-                    Progress.phase_id == p.phase_id,
-                )
-                .scalar() or 0
-            ),
-        }
-        for p in phases
-    ]
+            "percent": float(latest.new_percent if latest else 0),
+            "progress_id": latest.progress_id if latest else None,
+            "created_at": latest.logged_at if latest else None,
+            "performed_by_name": logged_by_name,
+        })
+
+    return rows
 
 
 # ─────────────────────────────────────────────
@@ -368,7 +385,6 @@ def upsert_project_phase_dates(
 
     project_phase.planned_start = planned_start
     project_phase.planned_end = planned_end
-    # The first planned start is copied into actual_start as a starting default until real progress changes it later
     if planned_start and not project_phase.actual_start:
         project_phase.actual_start = planned_start
 
@@ -386,7 +402,7 @@ def upsert_project_phase_dates(
 
 
 # ─────────────────────────────────────────────
-# FULL PROJECT VIEW (FIXED)
+# FULL PROJECT VIEW
 # ─────────────────────────────────────────────
 def get_full_project_view(
     db: Session,
