@@ -159,6 +159,7 @@ class FinanceLedgerFundSource(BaseModel):
     appropriated_amount: Decimal
     allotted_total: Decimal
     available_for_allotment: Decimal
+    created_by_name: Optional[str] = None
 
 
 class FinanceLedgerAllotment(BaseModel):
@@ -170,6 +171,7 @@ class FinanceLedgerAllotment(BaseModel):
     remarks: Optional[str] = None
     obligated_total: Decimal
     free_balance: Decimal
+    released_by_name: Optional[str] = None
 
 
 class FinanceLedgerObligation(BaseModel):
@@ -182,6 +184,7 @@ class FinanceLedgerObligation(BaseModel):
     remarks: Optional[str] = None
     disbursed_total: Decimal
     unpaid_balance: Decimal
+    created_by_name: Optional[str] = None
 
 
 class FinanceLedgerDisbursement(BaseModel):
@@ -192,6 +195,7 @@ class FinanceLedgerDisbursement(BaseModel):
     disbursement_amount: Decimal
     disbursement_date: date
     remarks: Optional[str] = None
+    created_by_name: Optional[str] = None
 
 
 class ProjectFinancialLedger(BaseModel):
