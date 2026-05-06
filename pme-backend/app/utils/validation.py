@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 VALID_EXPENSE_CLASSES = {"PS", "MOOE", "FE", "CO"}
-VALID_PROJECT_STATUS = {"planned", "ongoing", "delayed", "completed", "cancelled"}
+VALID_PROJECT_STATUS = {"planned", "in_progress", "delayed", "completed", "cancelled"}
 
 ZERO = Decimal("0.00")
 

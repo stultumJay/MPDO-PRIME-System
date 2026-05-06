@@ -11,6 +11,7 @@ class AuditResponse(BaseModel):
     entity_id:    Optional[str]
     description:  Optional[str]
     performed_by: Optional[UUID]
+    performed_by_name: Optional[str] = None
     created_at:   datetime
  
     class Config:

@@ -7,8 +7,10 @@ export default {
       fontFamily: {
         sans: ['Plus Jakarta Sans Variable', 'sans-serif'],
       },
+
       colors: {
-        accent: "#16a34a",  
+        accent: "#16a34a",
+
         background: "var(--background)",
         foreground: "var(--foreground)",
 
@@ -24,11 +26,23 @@ export default {
         sidebar: "var(--sidebar)",
         "sidebar-foreground": "var(--sidebar-foreground)",
 
-        /* status colors (needed for KPI cards) */
         "status-ongoing": "var(--status-ongoing)",
         "status-completed": "var(--status-completed)",
         "status-delayed": "var(--status-delayed)",
         "status-utilization": "var(--status-utilization)",
+
+        destructive: "var(--destructive)",
+        "destructive-foreground": "var(--destructive-foreground)",
+
+        success: "var(--status-completed)",   
+        warning: "oklch(0.75 0.18 70)",      
+        info: "var(--primary)",              
+
+
+        "severity-critical": "var(--destructive)",
+        "severity-high": "oklch(0.75 0.18 70)",  
+        "severity-medium": "var(--primary)",
+        "severity-low": "oklch(0.7 0.02 250)",
       },
     },
   },

@@ -5,7 +5,8 @@ from sqlalchemy import pool
 
 from alembic import context
 
-from app.db.database import Base
+from app.models.base import Base
+from app.config import settings
 from app.models import *
 
 import os
@@ -14,8 +15,12 @@ import os
 config = context.config
 
 # Load DATABASE_URL from environment
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = settings.DATABASE_URL
 config.set_main_option("sqlalchemy.url", DATABASE_URL)
+
+# Check if DATABASE_URL is set
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL is not set")
 
 # Logging
 if config.config_file_name is not None:
