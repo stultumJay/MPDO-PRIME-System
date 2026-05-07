@@ -1,32 +1,46 @@
-from app.integrations.document_tracking_client import fetch_documents, download_document
+from app.integrations.document_tracking_client import fetch_document_by_dtn
+from app.integrations.google_drive_client import list_folder_files
 
 
-def get_project_documents(project_id):
+def get_project_documents(dtn_no: str | None):
     """
-    This gets the project documents data the caller asked for
-    It applies the needed lookup rules and returns the result in the shape the next layer expects
+    Returns all document metadata from the Google Drive folder linked to a DTN.
     """
-    docs = fetch_documents(str(project_id))
+    if not dtn_no:
+        return []
 
-    return [
-        {
-            "document_id": d.get("id"),
-            "document_name": d.get("name"),
-            "document_type": d.get("type"),
-            "uploaded_at": d.get("uploaded_at"),
-        }
-        for d in docs
-    ]
+    row = fetch_document_by_dtn(dtn_no)
 
+    if not row:
+        return []
 
-def get_document_stream(document_id):
-    """
-    This gets the document stream data the caller asked for
-    It applies the needed lookup rules and returns the result in the shape the next layer expects
-    """
-    response = download_document(document_id)
+    folder_url = row.get("document_url")
+    if not folder_url:
+        return []
 
-    if not response:
-        return None
+    documents = []
+    for file in list_folder_files(folder_url):
+        file_id = file.get("id")
+        name = file.get("name") or "Project document"
+        mime_type = file.get("mimeType")
+        created_time = file.get("createdTime")
 
-    return response
+        documents.append(
+            {
+                "id": file_id,
+                "document_id": file_id,
+                "title": name,
+                "type": mime_type,
+                "document_url": file.get("webViewLink"),
+                "folder_url": folder_url,
+                "download_url": f"https://drive.google.com/uc?export=download&id={file_id}" if file_id else None,
+                "name": name,
+                "document_name": name,
+                "document_type": mime_type,
+                "view_url": file.get("webViewLink"),
+                "uploaded_at": created_time,
+                "created_at": created_time,
+            }
+        )
+
+    return documents

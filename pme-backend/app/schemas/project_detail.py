@@ -7,8 +7,15 @@ from uuid import UUID
 class ProjectDocument(BaseModel):
     document_id: str
     document_name: str
-    document_type: Optional[str]
+    document_type: Optional[str] = None
     uploaded_at: Optional[datetime]
+    id: Optional[str] = None
+    title: Optional[str] = None
+    type: Optional[str] = None
+    document_url: Optional[str] = None
+    view_url: Optional[str] = None
+    download_url: Optional[str] = None
+    name: Optional[str] = None
 
 
 class LocationalClearance(BaseModel):
