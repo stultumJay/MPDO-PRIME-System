@@ -31,6 +31,7 @@ from app.routers.api.v1 import (
     report_router,
     form_router,
     dashboard_router,
+    gantt_router,
 )
 
 app = FastAPI(title="MPDO PRIME System", version="1.0.0")
@@ -93,6 +94,7 @@ app.include_router(form_router.router,         prefix=PREFIX)
 app.include_router(map_router.router,          prefix=PREFIX)
 
 app.include_router(audit_router.router,        prefix=PREFIX)
+app.include_router(gantt_router.router,        prefix=PREFIX)
 
 # ─────────────────────────────────────────────
 # DATABASE TABLE CREATION
