@@ -38,6 +38,7 @@ class Project(Base):
     locational_clearance_status = Column(Boolean, nullable=False, default=False, server_default="false")
     locational_clearance_reference_no = Column(String(100), nullable=True)
     locational_clearance_checked_at = Column(DateTime, nullable=True)
+    dtn_no = Column(String(100), nullable=True, index=True)
 
     created_at = Column(DateTime, nullable=False, server_default=func.now())
     is_active  = Column(Boolean, nullable=False, default=True)
