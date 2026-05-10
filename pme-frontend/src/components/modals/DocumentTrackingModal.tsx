@@ -45,12 +45,12 @@ export default function DocumentTrackingModal({
       open={open}
       onClose={() => onOpenChange(false)}
       title="Document Tracking"
-      subtitle="Link this project to the Google Drive folder uploaded by DTS."
+      subtitle="Link this project to uploaded document files."
       size="max-w-xl"
       footer={
         <>
           <span className="text-xs text-muted-foreground">
-            DTN folders are read by PME through the backend.
+            Document files are read by PME through the backend.
           </span>
           <div className="flex items-center gap-2">
             <ModalButton
