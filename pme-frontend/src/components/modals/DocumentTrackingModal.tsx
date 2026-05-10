@@ -52,7 +52,7 @@ export default function DocumentTrackingModal({
         footer={
         <>
           <span className="text-xs text-muted-foreground">
-            DTN folders are read by PME through the backend.
+            Document files are read by PME through the backend.
           </span>
           <div className="flex items-center gap-2">
             <ModalButton
