@@ -2,13 +2,14 @@ from pydantic import BaseModel
 from typing import List, Optional
 from datetime import date, datetime
 from uuid import UUID
-
-
+    
 class ProjectDocument(BaseModel):
+    id: Optional[str] = None
     document_id: str
-    document_name: str
-    document_type: Optional[str]
-    uploaded_at: Optional[datetime]
+    document_name: Optional[str] = None
+    document_url: str
+    uploaded_at: Optional[datetime] = None
+    uploaded_by: Optional[str] = None
 
 
 class LocationalClearance(BaseModel):

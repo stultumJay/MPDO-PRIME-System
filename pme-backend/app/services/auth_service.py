@@ -22,6 +22,9 @@ def login(db: Session, username: str, password: str):
 
     if not verify_password(password, user.password_hash):
         return None
+    
+    if not user.is_active:
+        return None
 
     payload = {"sub": str(user.user_id)}
 

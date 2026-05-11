@@ -22,14 +22,14 @@ router = APIRouter(prefix="/progress", tags=["Progress"])
 def create(
     payload: ProgressCreate,
     db: Session = Depends(get_db),
-    _: UserAccount = Depends(get_current_user),
+    current_user: UserAccount = Depends(get_current_user),
 ):
     """
     This route creates the create flow and passes the request into the service layer
     It expects project_id as UUID, phase_id as UUID, and new_percent as Decimal
     It can also receive remarks as Optional[str]
     """
-    return create_progress(db, payload)
+    return create_progress(db, payload, current_user)
 
 
 @router.get("/project/{project_id}")

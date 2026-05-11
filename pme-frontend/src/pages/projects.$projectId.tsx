@@ -178,9 +178,20 @@ export default function ProjectDetailPage() {
   }
 
   function handleOpenDocument(document: ProjectDetailPayload["documents"][number], action: "view" | "download" = "view") {
-    const url = action === "download" ? document.download_url : document.view_url;
-    if (!url) {
-      setNotice("This document does not have an available Google Drive link for that action yet.");
+    const url = document.document_url;
+    if (!url) return;
+
+    if (action === "view") {
+      window.open(url, "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    const match = url.match(/\/d\/([^/]+)/);
+
+    if (match?.[1]) {
+      const fileId = match[1];
+      const downloadUrl = `https://drive.google.com/uc?export=download&id=${fileId}`;
+      window.open(downloadUrl, "_blank", "noopener,noreferrer");
       return;
     }
 
@@ -492,7 +503,7 @@ export default function ProjectDetailPage() {
                 await mutations.updateDtn.mutateAsync(dtnNo);
                 await detailQuery.refetch();
                 setModal(null);
-                setNotice("DTN saved. Project documents were refreshed from Google Drive.");
+                setNotice("DTN saved. Project documents were refreshed.");
               } catch (error) {
                 setDocumentError(error instanceof Error ? error.message : "Failed to save DTN.");
               }
@@ -525,6 +536,7 @@ export default function ProjectDetailPage() {
           <EditProjectModal
             open
             project={project.project}
+            phases={project.phases}
             submitting={mutations.updateProject.isPending}
             error={
               editError ??
@@ -796,10 +808,22 @@ function LifecycleCard({
   rows: PhaseDraft[];
   onSetDates: (row: PhaseDraft) => void;
 }) {
+  const [draftRows, setDraftRows] = useState<PhaseDraft[]>(rows);
+
+  useEffect(() => {
+    setDraftRows(rows);
+  }, [rows]);
+
   const statusLabel = (row: PhaseDraft) => {
     if (row.progress_percent >= 100) return "Complete";
     if (row.progress_percent > 0) return "In Progress";
     return "Planned";
+  };
+
+  const updateDate = (key: string, field: "start_date" | "end_date", value: string) => {
+    setDraftRows((current) =>
+      current.map((row) => (row.key === key ? { ...row, [field]: value } : row)),
+    );
   };
 
   return (
@@ -821,15 +845,31 @@ function LifecycleCard({
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {rows.map((row) => (
+            {draftRows.map((row) => (
               <tr key={row.key} className={row.progress_percent > 0 ? "bg-primary/5" : undefined}>
                 <td className="px-4 py-3 text-sm font-semibold">{row.phase_name}</td>
                 <td className="px-4 py-3 text-xs font-bold uppercase text-primary">{statusLabel(row)}</td>
-                <td className="px-4 py-3 text-xs">{row.start_date || "—"}</td>
-                <td className="px-4 py-3 text-xs">{row.end_date || "—"}</td>
+                <td className="px-4 py-3 text-xs">
+                  <input
+                    type="date"
+                    value={row.start_date}
+                    onChange={(event) => updateDate(row.key, "start_date", event.target.value)}
+                    className="w-full rounded border border-border bg-background px-2 py-1 text-xs outline-none focus:border-primary/40"
+                    aria-label={`${row.phase_name} start date`}
+                  />
+                </td>
+                <td className="px-4 py-3 text-xs">
+                  <input
+                    type="date"
+                    value={row.end_date}
+                    onChange={(event) => updateDate(row.key, "end_date", event.target.value)}
+                    className="w-full rounded border border-border bg-background px-2 py-1 text-xs outline-none focus:border-primary/40"
+                    aria-label={`${row.phase_name} end date`}
+                  />
+                </td>
                 <td className="px-4 py-3">
                   <button type="button" onClick={() => onSetDates(row)} className="text-xs font-bold text-primary hover:underline">
-                    Set
+                    Save
                   </button>
                 </td>
               </tr>
@@ -1036,6 +1076,8 @@ const ACTIVITY_KIND_META: Record<
   obligation: { icon: "description", label: "Obligation", tone: "text-red-700", bg: "bg-red-100" },
   disbursement: { icon: "payments", label: "Disbursement", tone: "text-emerald-700", bg: "bg-emerald-100" },
   issue: { icon: "report", label: "Issue / Risk", tone: "text-red-600", bg: "bg-red-50" },
+  progress: { icon: "trending_up", label: "Progress", tone: "text-blue-700", bg: "bg-blue-50" },
+  document: { icon: "folder", label: "Document", tone: "text-slate-700", bg: "bg-slate-100" },
 };
 
 function ActivityFeedCard({ activity }: { activity: ProjectDetailPayload["activity"] }) {
@@ -1072,7 +1114,7 @@ function ActivityFeedCard({ activity }: { activity: ProjectDetailPayload["activi
         <span className="text-[10px] font-bold text-muted-foreground">{filtered.length} entries</span>
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-2 border-b border-border pb-3">
-        {(["all", "appropriation", "allotment", "obligation", "disbursement", "issue"] as const).map((key) => (
+        {(["all", "appropriation", "allotment", "obligation", "disbursement", "progress", "issue", "document"] as const).map((key) => (
           <button
             key={key}
             type="button"
@@ -1102,7 +1144,9 @@ function ActivityFeedCard({ activity }: { activity: ProjectDetailPayload["activi
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[8px] font-bold uppercase text-primary">Update</span>
+                    <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[8px] font-bold uppercase text-primary">
+                      {meta.label}
+                    </span>
                     <h3 className="text-xs font-bold">{item.title}</h3>
                   </div>
                   <div className="text-right">
@@ -1158,10 +1202,10 @@ function DocumentsCard({
   const hasDtn = Boolean(tracking.dtn_no);
   const needsScroll = documents.length > 5;
   const emptyMessage = !hasDtn
-    ? "No DTN is linked yet. Add a DTN to load DTS-uploaded files from Google Drive."
+    ? "No DTN is linked yet. Add a DTN to load uploaded files."
     : tracking.valid
-      ? "No files were found in the linked Google Drive folder."
-      : "The linked DTN is invalid or the Google Drive folder could not be found.";
+      ? "No files were found for this document."
+      : "The linked DTN is invalid or no files exist.";
 
   return (
     <section className="rounded-lg border border-border/60 bg-card p-6 shadow-sm">
@@ -1202,11 +1246,11 @@ function DocumentsCard({
                 type="button"
                 onClick={() => onOpenDocument(doc, "view")}
                 className="text-[10px] font-black uppercase text-primary hover:underline disabled:cursor-not-allowed disabled:text-muted-foreground"
-                disabled={!doc.view_url}
+                disabled={!doc.document_url}
               >
                 View
               </button>
-              {doc.download_url ? (
+              {doc.document_url ? (
                 <button
                   type="button"
                   onClick={() => onOpenDocument(doc, "download")}

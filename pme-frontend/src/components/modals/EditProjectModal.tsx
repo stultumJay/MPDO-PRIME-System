@@ -13,14 +13,12 @@ export interface EditProjectPayload {
   location_lng?: number | null;
   expected_start_date?: string | null;
   expected_end_date?: string | null;
-  actual_start_date?: string | null;
-  actual_end_date?: string | null;
-  status: ProjectStatus;
 }
 
 interface EditProjectModalProps {
   open: boolean;
   project: Project;
+  phases?: ProjectDetailPayload["phases"];
   submitting?: boolean;
   error?: string | null;
   onOpenChange: (open: boolean) => void;
@@ -53,6 +51,7 @@ function nullableNumber(value: string) {
 export default function EditProjectModal({
   open,
   project,
+  phases = [],
   submitting = false,
   error,
   onOpenChange,
@@ -62,7 +61,6 @@ export default function EditProjectModal({
   const [description, setDescription] = useState("");
   const [barangay, setBarangay] = useState("");
   const [street, setStreet] = useState("");
-  const [status, setStatus] = useState<ProjectStatus>("planned");
   const [expectedStart, setExpectedStart] = useState("");
   const [expectedEnd, setExpectedEnd] = useState("");
   const [actualStart, setActualStart] = useState("");
@@ -76,7 +74,6 @@ export default function EditProjectModal({
     setDescription(project.project_description ?? "");
     setBarangay(project.barangay ?? "");
     setStreet(project.street ?? "");
-    setStatus(project.status ?? "planned");
     setExpectedStart(dateValue(project.expected_start_date));
     setExpectedEnd(dateValue(project.expected_end_date));
     setActualStart(dateValue(project.actual_start_date));
@@ -87,6 +84,9 @@ export default function EditProjectModal({
 
   if (!open) return null;
 
+  const computedStatus = deriveProjectStatus(phases, project.status ?? "planned");
+  const computedActualStart = computedStatus === "planned" ? "" : actualStart;
+  const computedActualEnd = computedStatus === "completed" ? actualEnd : "";
   const canSubmit = title.trim().length > 0 && !submitting;
 
   const submit = () => {
@@ -100,9 +100,6 @@ export default function EditProjectModal({
       location_lng: nullableNumber(longitude),
       expected_start_date: expectedStart || null,
       expected_end_date: expectedEnd || null,
-      actual_start_date: actualStart || null,
-      actual_end_date: actualEnd || null,
-      status,
     });
   };
 
@@ -166,31 +163,41 @@ export default function EditProjectModal({
           </div>
 
           <div className="grid gap-4 sm:grid-cols-3">
-            <label className="block space-y-1">
+            <div className="block space-y-1">
               <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">
                 Status
               </span>
-              <select
-                value={status}
-                onChange={(event) => setStatus(event.target.value as ProjectStatus)}
-                className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-900 outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20"
-              >
-                {statuses.map((item) => (
-                  <option key={item.value} value={item.value}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+              <div className="flex h-11 items-center rounded-lg border border-slate-200 bg-slate-50 px-3">
+                <p className="text-sm font-black text-slate-900">
+                  {statuses.find((item) => item.value === computedStatus)?.label ?? "Planned"}
+                </p>
+              </div>
+            </div>
             <TextField label="Latitude" type="number" value={latitude} onChange={setLatitude} required={false} step="0.000001" />
             <TextField label="Longitude" type="number" value={longitude} onChange={setLongitude} required={false} step="0.000001" />
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <TextField label="Expected Start" type="date" value={expectedStart} onChange={setExpectedStart} required={false} />
-            <TextField label="Expected End" type="date" value={expectedEnd} onChange={setExpectedEnd} required={false} />
-            <TextField label="Actual Start" type="date" value={actualStart} onChange={setActualStart} required={false} />
-            <TextField label="Actual End" type="date" value={actualEnd} onChange={setActualEnd} required={false} />
+            <TextField 
+              label="Expected Start" 
+              type="date" 
+              value={expectedStart} 
+              onChange={setExpectedStart} 
+              required={false} 
+              min="2000-01-01" 
+              max="2100-12-31" 
+            />
+            <TextField 
+              label="Expected End" 
+              type="date" 
+              value={expectedEnd} 
+              onChange={setExpectedEnd} 
+              required={false} 
+              min="2000-01-01" 
+              max="2100-12-31" 
+            />
+            <TextField label="Actual Start" type="date" value={computedActualStart} onChange={setActualStart} required={false} disabled />
+            <TextField label="Actual End" type="date" value={computedActualEnd} onChange={setActualEnd} required={false} disabled />
           </div>
         </div>
 
@@ -215,12 +222,28 @@ export default function EditProjectModal({
   );
 }
 
+function deriveProjectStatus(
+  phases: ProjectDetailPayload["phases"],
+  fallback: ProjectStatus,
+): ProjectStatus {
+  if (fallback === "delayed") return "delayed";
+  if (!phases.length) return "planned";
+
+  const percentages = phases.map((phase) => Number(phase.progress_percent) || 0);
+  if (percentages.every((percent) => percent >= 100)) return "completed";
+  if (percentages.some((percent) => percent > 0)) return "in_progress";
+  return "planned";
+}
+
 function TextField({
   label,
   value,
   type = "text",
   required = true,
   step,
+  disabled = false,
+  min,
+  max,
   onChange,
 }: {
   label: string;
@@ -228,6 +251,9 @@ function TextField({
   type?: string;
   required?: boolean;
   step?: string;
+  disabled?: boolean;
+  min?: string;
+  max?: string;
   onChange: (value: string) => void;
 }) {
   return (
@@ -240,8 +266,11 @@ function TextField({
         type={type}
         required={required}
         step={step}
+        disabled={disabled}
+        min={min}
+        max={max}
         onChange={(event) => onChange(event.target.value)}
-        className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-900 outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20"
+        className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-900 outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 disabled:bg-slate-50 disabled:text-slate-500"
       />
     </label>
   );

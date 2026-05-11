@@ -1,32 +1,43 @@
-from app.integrations.document_tracking_client import fetch_documents, download_document
+from __future__ import annotations
+
+from app.integrations.document_tracking_client import (
+    fetch_document_by_dtn,
+)
 
 
-def get_project_documents(project_id):
+def get_project_documents(dtn_no: str | None) -> list[dict]:
     """
-    This gets the project documents data the caller asked for
-    It applies the needed lookup rules and returns the result in the shape the next layer expects
+    Return all uploaded files linked to a DTN/document_id.
     """
-    docs = fetch_documents(str(project_id))
 
-    return [
-        {
-            "document_id": d.get("id"),
-            "document_name": d.get("name"),
-            "document_type": d.get("type"),
-            "uploaded_at": d.get("uploaded_at"),
-        }
-        for d in docs
-    ]
+    if not dtn_no:
+        return []
 
+    rows = fetch_document_by_dtn(dtn_no)
 
-def get_document_stream(document_id):
-    """
-    This gets the document stream data the caller asked for
-    It applies the needed lookup rules and returns the result in the shape the next layer expects
-    """
-    response = download_document(document_id)
+    if not rows:
+        return []
 
-    if not response:
-        return None
+    documents: list[dict] = []
 
-    return response
+    for row in rows:
+        file_url = row.get("url")
+
+        if not file_url:
+            continue
+
+        name = row.get("name") or "Project document"
+
+        documents.append(
+            {
+                "id": row.get("id"),
+                "document_id": row.get("document_id"),
+                "name": name,
+                "document_name": name,
+                "document_url": file_url,
+                "uploaded_at": row.get("uploaded_at"),
+                "uploaded_by": row.get("uploaded_by"),
+            }
+        )
+
+    return documents

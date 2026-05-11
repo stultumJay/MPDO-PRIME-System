@@ -11,7 +11,9 @@ def run():
     db = SessionLocal()
 
     try:
-        # Sectors
+        # =========================
+        # 1. SECTORS
+        # =========================
         sectors = [
             ("8000", "Infrastructure"),
             ("3000", "Social"),
@@ -34,22 +36,58 @@ def run():
 
         db.commit()
 
-        # Offices
+        # =========================
+        # 2. OFFICES
+        # =========================
         def create_office(code, otype, name):
             return {
                 "office_code": code,
                 "office_type": otype,
                 "office_name": name,
-                "mandate": f"Mandate of {name}",
-                "vision": f"Vision of {name}",
-                "mission": f"Mission of {name}",
-                "organizational_outcome": f"Outcome of {name}",
+                "mandate": f"This is a sample mandate of the {name}",
+                "vision": f"This is the vision of the {name}",
+                "mission": f"This is the mission of the {name}",
+                "organizational_outcome": f"This is the organizational outcome of the {name}",
             }
 
         offices = [
+
+            # =========================
+            # MANDATORY OFFICES (type = 1)
+            # =========================
             create_office("01", 1, "Office of the Municipal Mayor"),
+            create_office("02", 1, "Office of the Municipal Vice-Mayor"),
+            create_office("03", 1, "Office of the Sangguniang Bayan Members"),
+            create_office("04", 1, "Office of the Secretary to the Sangguniang Bayan"),
+            create_office("05", 1, "Office of the Municipal Treasurer"),
+            create_office("06", 1, "Office of the Municipal Assessor"),
+            create_office("07", 1, "Office of the Municipal Accountant"),
+            create_office("08", 1, "Office of the Municipal Budget Officer"),
             create_office("09", 1, "Office of the Municipal Planning and Development Coordinator"),
+            create_office("10", 1, "Office of the Municipal Engineer/Building Official"),
+            create_office("11", 1, "Office of the Municipal Health Officer"),
+            create_office("12", 1, "Office of the Municipal Civil Registrar"),
+            create_office("13", 1, "Office of the Municipal Social Welfare and Development"),
+            create_office("14", 1, "Office of the Municipal Disaster Risk Reduction and Management Officer"),
+            create_office("15", 1, "Office of the Municipal Internal Audit Service"),
+            create_office("16", 1, "Office of the Municipal Persons with Disability Affairs Officer"),
+            create_office("17", 1, "Office of the Municipal Public Employment Service Manager"),
+            create_office("18", 1, "Office of the Municipal Youth Development Officer"),
+            create_office("19", 1, "Office of the Municipal Senior Citizen Affairs Head"),
+
+            # =========================
+            # OPTIONAL OFFICES (type = 2)
+            # =========================
             create_office("01", 2, "Office of the Municipal Administrator"),
+            create_office("02", 2, "Office of the Municipal Legal Officer"),
+            create_office("03", 2, "Office of the Municipal Agriculturist"),
+            create_office("04", 2, "Office of the Municipal Environment and Natural Resources"),
+            create_office("05", 2, "Office of the Municipal Architect"),
+            create_office("06", 2, "Office of the Municipal Information Officer"),
+            create_office("07", 2, "Office of the Municipal Population Officer"),
+            create_office("08", 2, "Office of the Municipal Agricultural and Biosystems Engineer"),
+            create_office("09", 2, "Office of the Municipal Cooperatives Development Officer"),
+            create_office("10", 2, "Office of the Municipal Tourism Officer"),
         ]
 
         for o in offices:
@@ -62,7 +100,9 @@ def run():
 
         db.commit()
 
-        # Phases
+        # =========================
+        # 3. PHASES
+        # =========================
         phases = [
             ("Prelim", Decimal("10.00")),
             ("Procurement", Decimal("20.00")),
@@ -82,6 +122,7 @@ def run():
             )
 
         db.commit()
+
         print("Sectors, Offices, Phases seeded safely")
 
     except Exception as e:

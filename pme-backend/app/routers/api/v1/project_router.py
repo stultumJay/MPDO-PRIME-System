@@ -19,7 +19,7 @@ from app.schemas.project import (
 from app.schemas.issue import IssueCreate
 from app.schemas.progress import ProgressCreate, ProgressUpdate
 
-from app.services.project_document_service import get_project_documents, get_document_stream
+from app.services.project_document_service import get_project_documents
 from app.services.project_clearance_service import get_project_clearance
 
 from app.schemas.project_detail import ProjectDetailResponse
@@ -234,38 +234,37 @@ def full_project_view(
 @router.get("/{project_id}/documents")
 def project_documents(
     project_id: UUID,
+    db: Session = Depends(get_db),
     _: UserAccount = Depends(get_current_user),
 ):
     """
-    This route returns the project documents data the caller asked for
+    Return project document files.
     """
-    return get_project_documents(project_id)
+    project = project_service.get_project_by_id(db, project_id)
+    document_id = getattr(project, "dtn_no", None)
+    documents = get_project_documents(document_id)
 
+    return {
+        "project_id": str(project_id),
+        "document_id": document_id,
+        "valid": len(documents) > 0,
+        "documents": documents,
+    }
 
-@router.get("/{project_id}/documents/{document_id}/download")
-def download_project_document(
+class ProjectDtnUpdate(BaseModel):
+    dtn_no: str
+
+@router.put("/{project_id}/dtn", response_model=ProjectResponse)
+def set_project_dtn(
     project_id: UUID,
-    document_id: str,
+    payload: ProjectDtnUpdate,
+    db: Session = Depends(get_db),
     _: UserAccount = Depends(get_current_user),
 ):
     """
-    This route returns the download project document data the caller asked for
+    Save the DTS document tracking number used for document file lookup.
     """
-    response = get_document_stream(document_id)
-    
-    if not response:
-        raise HTTPException(
-            status_code=503,
-            detail="Document service not available"
-        )
-
-    return StreamingResponse(
-        response.iter_content(chunk_size=1024),
-        media_type=response.headers.get("content-type"),
-        headers={
-            "Content-Disposition": f'attachment; filename="{document_id}"'
-        }
-    )
+    return project_service.set_project_dtn(db, project_id, payload.dtn_no)
 
 
 # ─────────────────────────────

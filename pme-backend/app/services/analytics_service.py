@@ -77,48 +77,6 @@ def get_dashboard_metrics(db: Session, fiscal_year: int | None = None) -> dict:
         "funds_utilized_amount": disbursed,
     }
 
-
-# ─────────────────────────────────────────────
-# 6-MONTH FINANCIAL TREND
-# ─────────────────────────────────────────────
-def get_budget_utilization(db: Session, fiscal_year: int | None = None, months: int = 6) -> list:
-    """
-    This returns the recent month by month allocated and utilized amounts for the dashboard chart
-    The caller can change how many months should be shown, but six is the normal default
-    """
-    today   = datetime.today()
-    results = []
-
-    # The loop walks from the oldest month toward the newest month so the chart stays in reading order
-    for i in range(months - 1, -1, -1):
-        dt    = today - timedelta(days=30 * i)
-        month = dt.month
-        year  = dt.year
-
-        allocated: Decimal = db.query(
-            func.coalesce(func.sum(Allotment.amount_released), _Z)
-        ).filter(
-            func.extract("month", Allotment.release_date) == month,
-            func.extract("year",  Allotment.release_date) == year,
-        ).scalar() or _Z
-
-        disbursed: Decimal = db.query(
-            func.coalesce(func.sum(Disbursement.disbursement_amount), _Z)
-        ).filter(
-            func.extract("month", Disbursement.disbursement_date) == month,
-            func.extract("year",  Disbursement.disbursement_date) == year,
-        ).scalar() or _Z
-
-        results.append({
-            "month":     dt.strftime("%b"),
-            "year":      year,
-            "allocated": allocated,
-            "utilized":  disbursed,
-        })
-
-    return results
-
-
 # ─────────────────────────────────────────────
 # PROJECT STATUS DISTRIBUTION
 # ─────────────────────────────────────────────

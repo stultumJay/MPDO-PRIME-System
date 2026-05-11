@@ -7,9 +7,12 @@ from app.models.user import UserAccount
 
 from app.services.analytics_service import (
     get_dashboard_metrics,
-    get_budget_utilization,
-    get_project_status_distribution,
-)
+    get_project_status_distribution
+    )
+
+from app.services.report_service import (
+    get_budget_utilization
+    )
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
 
