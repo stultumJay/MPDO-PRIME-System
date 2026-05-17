@@ -6,6 +6,9 @@ from pydantic import BaseModel, model_validator
 
 
 class PerformanceCreate(BaseModel):
+    project_aip_id:         Optional[UUID] = None
+    project_id:             Optional[UUID] = None
+    fiscal_year:            Optional[int] = None
     performance_indicator: str
     target_total:          int
     target_q1:             int = 0

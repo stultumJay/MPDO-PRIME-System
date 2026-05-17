@@ -227,6 +227,10 @@ def update_aip_entry(
         "actual_q3": "actual_q3", "actual_q4": "actual_q4",
         "performance_remarks": "remarks",
     }
+    perf_updates = {sk: mk for sk, mk in _PERF.items() if sk in updates}
+    if perf_updates and not aip.performance:
+        aip.performance = Performance()
+
     if aip.performance:
         for sk, mk in _PERF.items():
             if sk in updates:

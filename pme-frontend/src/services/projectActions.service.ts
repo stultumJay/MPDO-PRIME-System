@@ -171,6 +171,9 @@ export interface ProgressPayload {
 }
 
 export interface PerformanceCreatePayload {
+  project_aip_id?: string;
+  project_id?: string;
+  fiscal_year?: number;
   performance_indicator: string;
   target_total: number;
   target_q1?: number;
@@ -378,6 +381,13 @@ export function getPerformance(performanceId: string) {
 
 export function updatePerformance(performanceId: string, data: PerformanceUpdatePayload) {
   return apiRequest<PerformanceRecord>(`/performances/${encodeURIComponent(performanceId)}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export function updateAipPerformance(projectAipId: string, data: PerformanceUpdatePayload) {
+  return apiRequest(`/aip/${encodeURIComponent(projectAipId)}`, {
     method: "PUT",
     body: JSON.stringify(data),
   });
