@@ -36,9 +36,40 @@ def performance_progress(performance) -> int:
     return max(0, min(100, round(progress)))
 
 
+def performance_target_progress(performance, current_quarter: int) -> int | None:
+    if not performance:
+        return None
+
+    target_total = safe_int(getattr(performance, "target_total", 0))
+    if target_total <= 0:
+        return None
+
+    cumulative_target = sum(
+        safe_int(getattr(performance, f"target_q{quarter}", 0))
+        for quarter in range(1, current_quarter + 1)
+    )
+    expected_progress = (cumulative_target / target_total) * 100
+    return max(0, min(100, round(expected_progress)))
+
+
+def performance_status(progress: int, expected_progress: int | None) -> str:
+    if expected_progress is None:
+        return "Major Delay"
+
+    gap = expected_progress - progress
+    if gap > 30:
+        return "Major Delay"
+    if gap > 10:
+        return "Slight Delay"
+    return "On Schedule"
+
+
 def get_gantt_data(db: Session, fiscal_year: int = None):
     if not fiscal_year:
         fiscal_year = datetime.now().year
+
+    current_month = datetime.now().month
+    current_quarter = (current_month - 1) // 3 + 1
 
     aip_rows = (
         db.query(ProjectAIP)
@@ -72,15 +103,8 @@ def get_gantt_data(db: Session, fiscal_year: int = None):
         if not p:
             continue
 
-        start_date = safe_date(
-            p.actual_start_date or p.expected_start_date,
-            datetime(fiscal_year, 1, 1),
-        )
-
-        end_date = safe_date(
-            p.actual_end_date or p.expected_end_date,
-            datetime(fiscal_year, 12, 31),
-        )
+        start_date = safe_date(p.expected_start_date, datetime(fiscal_year, 1, 1))
+        end_date = safe_date(p.expected_end_date, datetime(fiscal_year, 12, 31))
 
         start_month = start_date.month
 
@@ -88,13 +112,8 @@ def get_gantt_data(db: Session, fiscal_year: int = None):
         duration = max(1, min(duration, 13 - start_month))
 
         progress = performance_progress(aip.performance)
-
-        if progress < 30:
-            status = "Major Delay"
-        elif progress < 70:
-            status = "Slight Delay"
-        else:
-            status = "On Schedule"
+        expected_progress = performance_target_progress(aip.performance, current_quarter)
+        status = performance_status(progress, expected_progress)
 
         project_list.append({
             "name": p.project_title or "Untitled Project",
@@ -103,8 +122,8 @@ def get_gantt_data(db: Session, fiscal_year: int = None):
             "startMonth": start_month,
             "duration": duration,
             "progress": progress,
-            "plannedProgress": 100,
-            "performanceGap": 0,
+            "plannedProgress": expected_progress or 0,
+            "performanceGap": (expected_progress - progress) if expected_progress is not None else 0,
         })
 
     return {

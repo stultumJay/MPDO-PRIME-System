@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { updatePerformance } from "@/services/projectActions.service";
+import { updateAipPerformance } from "@/services/projectActions.service";
 import {
   ModalShell,
   FieldLabel,
@@ -12,7 +12,7 @@ interface Props {
   onClose: () => void;
   onSuccess: () => void;
 
-  performanceId: string;
+  projectAipId: string;
 
   projectTitle: string;
 
@@ -36,7 +36,7 @@ export default function PhysicalProgressModal({
   open,
   onClose,
   onSuccess,
-  performanceId,
+  projectAipId,
   projectTitle,
   data,
 }: Props) {
@@ -92,15 +92,17 @@ export default function PhysicalProgressModal({
     targetValues.every((value) => Number.isInteger(value) && value >= 0) &&
     totalTarget === annualTarget;
   const actualsAreValid = actualValues.every((value) => Number.isInteger(value) && value >= 0);
+  const targetValidationMessage = !Number.isInteger(annualTarget) || annualTarget <= 0
+    ? "Annual target must be a positive whole number."
+    : !targetValues.every((value) => Number.isInteger(value) && value >= 0)
+      ? "Quarterly targets must be non-negative whole numbers."
+      : totalTarget !== annualTarget
+        ? `Quarterly targets sum to ${totalTarget}, but the annual target is ${annualTarget}. Target changes will not be saved until they match.`
+        : null;
 
   const handleSave = async () => {
-    if (!performanceId) {
+    if (!projectAipId) {
       setError("Select an AIP context first before logging physical progress.");
-      return;
-    }
-
-    if (!targetsAreValid) {
-      setError("Quarterly targets must be non-negative integers and must equal the annual target total.");
       return;
     }
 
@@ -112,12 +114,18 @@ export default function PhysicalProgressModal({
     setBusy(true);
     setError(null);
     try {
-      await updatePerformance(performanceId, {
-        target_total: annualTarget,
-        target_q1: targetValues[0],
-        target_q2: targetValues[1],
-        target_q3: targetValues[2],
-        target_q4: targetValues[3],
+      const targetPayload = targetsAreValid
+        ? {
+            target_total: annualTarget,
+            target_q1: targetValues[0],
+            target_q2: targetValues[1],
+            target_q3: targetValues[2],
+            target_q4: targetValues[3],
+          }
+        : {};
+
+      await updateAipPerformance(projectAipId, {
+        ...targetPayload,
         actual_q1: actualValues[0],
         actual_q2: actualValues[1],
         actual_q3: actualValues[2],
@@ -148,15 +156,20 @@ export default function PhysicalProgressModal({
               Cancel
             </ModalButton>
             <ModalButton onClick={handleSave} disabled={busy}>
-              {busy ? "Saving..." : "Save Quarterly Logs"}
+              {busy ? "Saving..." : targetsAreValid ? "Save Quarterly Logs" : "Save Actuals Only"}
             </ModalButton>
           </div>
         </div>
       }
     >
       {error ? (
-        <div className="mb-4 rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive">
+        <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm font-semibold text-destructive">
           {error}
+        </div>
+      ) : null}
+      {targetValidationMessage ? (
+        <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm font-semibold text-destructive">
+          {targetValidationMessage}
         </div>
       ) : null}
       <div className="mb-6">

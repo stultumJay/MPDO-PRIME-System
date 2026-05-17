@@ -5,6 +5,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.models.performance import Performance
+from app.models.project_aip import ProjectAIP
 from app.schemas.performance import PerformanceCreate, PerformanceUpdate, PerformanceResponse
 
 
@@ -26,8 +27,45 @@ def create_performance(db: Session, data: PerformanceCreate) -> PerformanceRespo
     This creates the performance record for the service layer
     It checks the needed records first, saves the new values, and returns the fresh result
     """
-    perf = Performance(**data.model_dump(exclude={"performance_remarks"}))
+    aip = None
+
+    if data.project_aip_id:
+        aip = db.query(ProjectAIP).filter(ProjectAIP.project_aip_id == data.project_aip_id).first()
+        if not aip:
+            raise HTTPException(404, "AIP entry not found.")
+    elif data.project_id and data.fiscal_year:
+        aip = (
+            db.query(ProjectAIP)
+            .filter(
+                ProjectAIP.project_id == data.project_id,
+                ProjectAIP.fiscal_year == data.fiscal_year,
+                ProjectAIP.is_active.is_(True),
+            )
+            .first()
+        )
+
+    values = data.model_dump(
+        exclude={
+            "project_aip_id",
+            "project_id",
+            "fiscal_year",
+            "performance_remarks",
+        }
+    )
+
+    if aip and aip.performance:
+        for field, value in values.items():
+            setattr(aip.performance, field, value)
+        db.commit()
+        db.refresh(aip.performance)
+        return PerformanceResponse.model_validate(aip.performance)
+
+    perf = Performance(**values)
     db.add(perf)
+    db.flush()
+    if aip:
+        aip.performance_id = perf.performance_id
+
     db.commit()
     db.refresh(perf)
     return PerformanceResponse.model_validate(perf)

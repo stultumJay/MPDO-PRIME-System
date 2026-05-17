@@ -223,7 +223,6 @@ export default function ProjectDetailPage() {
 
   if (!project) return null;
 
-  const physicalPerformanceId = activeAipContext?.performance_id ?? "";
   const physicalProgressSeed = {
     performance_indicator:
       activeAipContext?.performance?.performance_indicator ??
@@ -312,7 +311,7 @@ export default function ProjectDetailPage() {
               year={project.selected_year ?? new Date().getFullYear()}
               progress={project.physical_progress}
               loading={detailQuery.isFetching && !detailQuery.data}
-              canOpen={Boolean(physicalPerformanceId)}
+              canOpen={Boolean(activeAipContext?.project_aip_id)}
               onLogProgress={() => setModal("physical-progress")}
             />
             <FinancialExecutionPanel
@@ -479,7 +478,7 @@ export default function ProjectDetailPage() {
             open
             onClose={() => setModal(null)}
             onSuccess={() => void detailQuery.refetch()}
-            performanceId={physicalPerformanceId}
+            projectAipId={activeAipContext?.project_aip_id ?? ""}
             projectTitle={project.project.project_title}
             data={physicalProgressSeed}
           />
